@@ -11,8 +11,6 @@ class BaseEmail:
         self.content = content
 
     def send_email(self):
-        print("Sender email ->", self.sender)
-        print("Recepient email ->", self.recepient)
         body = self.load_template(self.content)
         try:
             send_mail(
