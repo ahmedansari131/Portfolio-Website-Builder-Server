@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import BaseUserManager, AbstractBaseUser
 import os
 import jwt
+from django.utils import timezone
+from datetime import timedelta
 
 
 class UserManager(BaseUserManager):
@@ -70,38 +72,3 @@ class User(AbstractBaseUser):
     # # save username into DB while registering (slicing email)
     # def save(self, *args, **kargs):
     #     pass
-
-
-class VerificationToken(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user")
-    verification_token = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    @classmethod
-    def generate_token(cls, user_id):
-        if not user_id:
-            return "User id not found"
-
-        user = User.objects.get(id=user_id)
-
-        if not user:
-            return "User does not exist"
-
-        encoded_token = jwt.encode(
-            {"id": user_id}, os.environ.get("VERIFICATION_SECRET"), algorithm="HS256"
-        )
-        try:
-            token = cls.objects.create(verification_token=encoded_token, user=user)
-        except Exception as error:
-            return None
-        if token:
-            return token
-        else:
-            return "Error occurred while creating token"
-
-    @staticmethod
-    def verify_token(token):
-        decoded_token = jwt.decode(
-            jwt=token, key=os.environ.get("VERIFICATION_SECRET"), algorithms=["HS256"]
-        )
-        return decoded_token
