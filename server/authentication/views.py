@@ -28,13 +28,16 @@ class AuthenticateUser(APIView):
                 token = VerificationEmail.generate_token(user.id)
 
                 if token:
+                    verification_link = request.build_absolute_uri(
+                        f'/{os.environ.get("API_PATH_PREFIX")}/verify-email/?token={token}'
+                    )
                     email = BaseEmail(
                         sender=os.environ.get("ADMIN_EMAIL"),
                         recipient=serializer.validated_data.get("email"),
                         subject="Email verification",
                         content={
                             "username": serializer.validated_data.get("username"),
-                            "verification_link": f"http://127.0.01:8000/api/v1/auth/verify-email/?token={token}",
+                            "verification_link": verification_link,
                         },
                     )
                     email.send_email()
