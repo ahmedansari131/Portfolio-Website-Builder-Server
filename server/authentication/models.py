@@ -1,9 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import BaseUserManager, AbstractBaseUser
-import os
-import jwt
-from django.utils import timezone
-from datetime import timedelta
+from cloudinary.models import CloudinaryField
 
 
 class UserManager(BaseUserManager):
@@ -41,6 +38,7 @@ class User(AbstractBaseUser):
     username = models.CharField(max_length=50)
     is_active = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
+    profile_image = CloudinaryField("image", default="")
     refresh_token = models.TextField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
