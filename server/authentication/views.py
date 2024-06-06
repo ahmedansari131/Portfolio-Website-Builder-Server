@@ -25,6 +25,7 @@ class AuthenticateUser(APIView):
         if serializer.is_valid(raise_exception=True):
             try:
                 user = serializer.save()
+                # print(user.profile_image.url)
                 token = VerificationEmail.generate_token(user.id)
 
                 if token:
