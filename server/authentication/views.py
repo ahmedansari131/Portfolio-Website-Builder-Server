@@ -2,7 +2,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework import status
-from .models import User
+from .models import User, VerificationToken
 from .serializers import UserSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
@@ -23,20 +23,22 @@ class AuthenticateUser(APIView):
 
         if serializer.is_valid(raise_exception=True):
             try:
-                serializer.save()
-                
-                email = BaseEmail(
-                    sender=os.environ.get("ADMIN_EMAIL"),
-                    recipient=serializer.validated_data.get("email"),
-                    subject="Email verification",
-                    content={
-                        "username": serializer.validated_data.get("username"),
-                        "verification_link": "https://www.google.com",
-                    },
-                )
-                email_sent = email.send_email()
-                print("Email sent? ", email_sent)
-                # Sending verification mail while saving
+                user = serializer.save()
+                token = VerificationToken.generate_token(user.id)
+
+                if token:
+                    email = BaseEmail(
+                        sender=os.environ.get("ADMIN_EMAIL"),
+                        recipient=serializer.validated_data.get("email"),
+                        subject="Email verification",
+                        content={
+                            "username": serializer.validated_data.get("username"),
+                            "verification_link": f"http://127.0.01:8000/api/v1/auth/verify-email/?token={token.verification_token}/",
+                        },
+                    )
+                    email_sent = email.send_email()
+                    print("Email sent? ", email_sent)
+
             except IntegrityError as error:
                 print("In integrity error", error)
                 if "unique constraint" in str(error).lower():
@@ -59,9 +61,15 @@ class AuthenticateUser(APIView):
         return ApiResponse.response_failed(message="Failed", status=404)
 
     def get(self, request):
-        return ApiResponse.response_succeed(
-            message="This is get method", data={"key": "value"}, status=200
-        )
+        verification_token = request.GET.get("token")
+        if verification_token:
+            return ApiResponse.response_succeed(
+                message="Verified", data=verification_token, status=200
+            )
+        else:
+            return ApiResponse.response_failed(
+                message="Failed to get token", status=404
+            )
 
     def put(self):
         pass
