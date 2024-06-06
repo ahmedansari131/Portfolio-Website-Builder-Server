@@ -91,7 +91,10 @@ class VerificationToken(models.Model):
         encoded_token = jwt.encode(
             {"id": user_id}, os.environ.get("VERIFICATION_SECRET"), algorithm="HS256"
         )
-        token = cls.objects.create(token=encoded_token, user=user_id)
+        try:
+            token = cls.objects.create(verification_token=encoded_token, user=user)
+        except Exception as error:
+            return None
         if token:
             return token
         else:
