@@ -38,7 +38,7 @@ class User(AbstractBaseUser):
     username = models.CharField(max_length=50)
     is_active = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
-    profile_image = CloudinaryField("image", default="")
+    profile_image = CloudinaryField("Profile image", default="", folder="portfolio_website_builder/profile_image/")
     refresh_token = models.TextField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -66,7 +66,3 @@ class User(AbstractBaseUser):
         "Is the user a member of staff?"
         # Simplest possible answer: All admins are staff
         return self.is_admin
-
-    # # save username into DB while registering (slicing email)
-    # def save(self, *args, **kargs):
-    #     pass
