@@ -33,11 +33,6 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractBaseUser):
-    MY_CHOICES = [
-        ("ADMIN", "Admin"),
-        ("GUEST", "Guest"),
-    ]
-
     email = models.EmailField(
         verbose_name="Email",
         max_length=100,
@@ -46,7 +41,6 @@ class User(AbstractBaseUser):
     username = models.CharField(max_length=50)
     is_active = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
-    role = models.CharField(max_length=10, choices=MY_CHOICES, default="GUEST")
     refresh_token = models.TextField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -75,9 +69,9 @@ class User(AbstractBaseUser):
         # Simplest possible answer: All admins are staff
         return self.is_admin
 
-    # save username into DB while registering (slicing email)
-    def save(self, *args, **kargs):
-        pass
+    # # save username into DB while registering (slicing email)
+    # def save(self, *args, **kargs):
+    #     pass
 
 
 class VerificationLink(models.Model):
