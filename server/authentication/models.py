@@ -1,8 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import BaseUserManager, AbstractBaseUser
-from datetime import timedelta
 import os
-from django.utils import timezone
 import jwt
 
 
@@ -85,6 +83,7 @@ class VerificationToken(models.Model):
             return "User id not found"
 
         user = User.objects.get(id=user_id)
+
         if not user:
             return "User does not exist"
 
@@ -99,3 +98,10 @@ class VerificationToken(models.Model):
             return token
         else:
             return "Error occurred while creating token"
+
+    @staticmethod
+    def verify_token(token):
+        decoded_token = jwt.decode(
+            jwt=token, key=os.environ.get("VERIFICATION_SECRET"), algorithms=["HS256"]
+        )
+        return decoded_token
