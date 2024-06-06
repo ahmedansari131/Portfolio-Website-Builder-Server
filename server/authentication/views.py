@@ -6,6 +6,8 @@ from .models import User
 from .serializers import UserSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
+from server.utils import BaseEmail
+import os
 
 
 class AuthenticateUser(APIView):
@@ -22,6 +24,18 @@ class AuthenticateUser(APIView):
         if serializer.is_valid(raise_exception=True):
             try:
                 serializer.save()
+                
+                email = BaseEmail(
+                    sender=os.environ.get("ADMIN_EMAIL"),
+                    recipient=serializer.validated_data.get("email"),
+                    subject="Email verification",
+                    content={
+                        "username": serializer.validated_data.get("username"),
+                        "verification_link": "https://www.google.com",
+                    },
+                )
+                email_sent = email.send_email()
+                print("Email sent? ", email_sent)
                 # Sending verification mail while saving
             except IntegrityError as error:
                 print("In integrity error", error)
