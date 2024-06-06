@@ -74,7 +74,7 @@ class User(AbstractBaseUser):
     #     pass
 
 
-class VerificationLink(models.Model):
+class VerificationToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user")
     verification_token = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
