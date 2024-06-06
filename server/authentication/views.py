@@ -2,11 +2,12 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework import status
-from .models import User, VerificationToken
+from .models import User
 from .serializers import UserSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from server.utils import BaseEmail
+from .utils import VerificationEmail
 import os
 
 
@@ -24,7 +25,7 @@ class AuthenticateUser(APIView):
         if serializer.is_valid(raise_exception=True):
             try:
                 user = serializer.save()
-                token = VerificationToken.generate_token(user.id)
+                token = VerificationEmail.generate_token(user.id)
 
                 if token:
                     email = BaseEmail(
@@ -33,11 +34,10 @@ class AuthenticateUser(APIView):
                         subject="Email verification",
                         content={
                             "username": serializer.validated_data.get("username"),
-                            "verification_link": f"http://127.0.01:8000/api/v1/auth/verify-email/?token={token.verification_token}/",
+                            "verification_link": f"http://127.0.01:8000/api/v1/auth/verify-email/?token={token}",
                         },
                     )
-                    email_sent = email.send_email()
-                    print("Email sent? ", email_sent)
+                    email.send_email()
 
             except IntegrityError as error:
                 print("In integrity error", error)
@@ -62,10 +62,25 @@ class AuthenticateUser(APIView):
 
     def get(self, request):
         verification_token = request.GET.get("token")
+
         if verification_token:
-            return ApiResponse.response_succeed(
-                message="Verified", data=verification_token, status=200
-            )
+            decoded_token = VerificationEmail.verify_token(verification_token)
+
+            if isinstance(decoded_token, dict) and "id" in decoded_token:
+                try:
+                    user = User.objects.get(id=decoded_token["id"])
+                    user.is_active = True
+                    user.save()
+                    return ApiResponse.response_succeed(
+                        message="User is verified and can login.", status=200
+                    )
+                except Exception as error:
+                    return ApiResponse.response_failed(
+                        message="Error occurred while saving verified user", status=500
+                    )
+
+            else:
+                return ApiResponse.response_failed(message=decoded_token, status=500)
         else:
             return ApiResponse.response_failed(
                 message="Failed to get token", status=404
@@ -73,6 +88,3 @@ class AuthenticateUser(APIView):
 
     def put(self):
         pass
-
-
-# {"username": "ahmedansari", "email": "ahmed@gmail.com", "password": "12345678"}
