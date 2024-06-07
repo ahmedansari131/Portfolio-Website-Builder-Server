@@ -12,37 +12,75 @@ import os
 
 
 class AuthenticateUser(APIView):
+
+    def verification_token(self, user_id, request):
+        token = VerificationEmail.generate_token(user_id)
+
+        if token:
+            verification_link = request.build_absolute_uri(
+                f'/{os.environ.get("API_PATH_PREFIX")}/verify-email/?token={token}'
+            )
+            return verification_link
+
+    def verification_email(self, data):
+        email = BaseEmail(
+            sender=os.environ.get("ADMIN_EMAIL"),
+            recipient=data.get("recepient"),
+            subject="Email verification",
+            content=data.get("content"),
+        )
+        email.send_email()
+
     def post(self, request):
         data = request.data
         serializer = UserSerializer(data=data)
 
         if serializer.is_valid(raise_exception=True):
             try:
-                user = serializer.save()
-                token = VerificationEmail.generate_token(user.id)
+                email = data.get("email")
+                user_exist = User.objects.filter(email=email).first()
+                if user_exist:
+                    is_user_active = user_exist.is_active
+                    if is_user_active:
+                        return ApiResponse.response_succeed(
+                            message="User already exist. Please login!", status=403
+                        )
+                    else:
+                        verification_link = self.verification_token(
+                            user_exist.id, request
+                        )
+                        email_data = {
+                            "recepient": user_exist.email,
+                            "content": {
+                                "username": user_exist.username,
+                                "verification_link": verification_link,
+                            },
+                        }
+                        self.verification_email(email_data)
+                        return ApiResponse.response_succeed(
+                            message=f"User is inactive. Account activation email is sent on {user_exist.email}!",
+                            status=200,
+                        )
 
-                if token:
-                    verification_link = request.build_absolute_uri(
-                        f'/{os.environ.get("API_PATH_PREFIX")}/verify-email/?token={token}'
-                    )
-                    email = BaseEmail(
-                        sender=os.environ.get("ADMIN_EMAIL"),
-                        recipient=serializer.validated_data.get("email"),
-                        subject="Email verification",
-                        content={
-                            "username": serializer.validated_data.get("username"),
-                            "verification_link": verification_link,
-                        },
-                    )
-                    email.send_email()
+                user = serializer.save()
+                verification_link = self.verification_token(user.id, request)
+                email_data = {
+                    "recepient": serializer.validated_data.get("email"),
+                    "content": {
+                        "username": serializer.validated_data.get("username"),
+                        "verification_link": verification_link,
+                    },
+                }
+                self.verification_email(email_data)
 
             except IntegrityError as error:
                 if "unique constraint" in str(error).lower():
                     return ApiResponse.response_failed(
                         message="A user with this email address already exists.",
-                        status=400,
+                        status=403,
                     )
             except Exception as error:
+                print("Error ->", error)
                 return ApiResponse.response_failed(
                     message="Error occurred on server. Please try registering again!",
                     status=500,
@@ -54,7 +92,9 @@ class AuthenticateUser(APIView):
                 status=201,
             )
 
-        return ApiResponse.response_failed(message="Failed", status=404)
+        return ApiResponse.response_failed(
+            message="Error occurred on server while registering the user", status=500
+        )
 
     def get(self, request):
         verification_token = request.GET.get("token")
