@@ -14,12 +14,6 @@ import os
 class AuthenticateUser(APIView):
     def post(self, request):
         data = request.data
-        email = data.get("email")
-
-        if not email:
-            return ApiResponse.response_failed(message="Email is required", status=404)
-
-        data["username"] = email[: email.find("@") :]
         serializer = UserSerializer(data=data)
 
         if serializer.is_valid(raise_exception=True):
