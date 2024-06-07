@@ -17,7 +17,7 @@ class BaseEmail:
                 subject=self.subject,
                 message="This is email verification message",
                 html_message=body,
-                from_email=self.sender,
+                from_email="admin@admin.com",
                 recipient_list=[self.recepient],
                 fail_silently=False,
             )
