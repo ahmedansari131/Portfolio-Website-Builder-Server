@@ -4,24 +4,24 @@ from cloudinary.models import CloudinaryField
 
 
 class UserManager(BaseUserManager):
-    def create_user(self, email, name, password=None):
+    def create_user(self, email, username, password=None):
         if not email:
             raise ValueError("User must have an email address")
 
         user = self.model(
             email=self.normalize_email(email),
-            name=name,
+            username=username,
         )
 
         user.set_password(password)
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email, name, password=None):
+    def create_superuser(self, email, username, password=None):
         user = self.create_user(
             email,
             password=password,
-            name=name,
+            username=username,
         )
         user.is_admin = True
         user.is_active = True
