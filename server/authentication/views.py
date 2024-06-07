@@ -43,7 +43,6 @@ class AuthenticateUser(APIView):
                     email.send_email()
 
             except IntegrityError as error:
-                print("In integrity error", error)
                 if "unique constraint" in str(error).lower():
                     return ApiResponse.response_failed(
                         message="A user with this email address already exists.",
