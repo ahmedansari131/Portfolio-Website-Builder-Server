@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Verification</title>
+  </head>
+  <body>
+    <div style="color: black;">
+      <h2
+        style="
+          padding-bottom: 1em;
+          border-bottom: 1px solid rgb(202, 202, 202);
+          width: 100%;
+        "
+      >
+        Email Verification | Portfolio Website Builder
+      </h2>
+      <p style="text-align: left; font-size: 1.1rem;">
+        Hello <span style="font-weight: bold">{{username}}</span>,
+      </p>
+      <p style="text-align: left">
+        You have registered successfully, please
+        <span style="font-weight: bold">click on button</span> below to verify
+        the email. Failing to do this would not make your account active.
+      </p>
+      <p style="text-align: left">
+        If button is not working, please click on the following link or copy and
+        paste in your browser search box.
+      </p>
+      <a href="{{verification_link}}"
+        ><button
+          style="
+            padding: 0.5em 1em;
+            background-color: navy;
+            color: white;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+          "
+        >
+          Click here to verify
+        </button></a
+      >
+    </div>
+  </body>
+</html>
