@@ -11,8 +11,7 @@ from .utils import VerificationEmail
 import os
 
 
-class AuthenticateUser(APIView):
-
+class UserRegistration(APIView):
     def verification_token(self, user_id, request):
         token = VerificationEmail.generate_token(user_id)
 
@@ -96,6 +95,8 @@ class AuthenticateUser(APIView):
             message="Error occurred on server while registering the user", status=500
         )
 
+
+class EmailVerification(APIView):
     def get(self, request):
         verification_token = request.GET.get("token")
 
@@ -122,5 +123,7 @@ class AuthenticateUser(APIView):
                 message="Failed to get token", status=404
             )
 
-    def put(self):
+
+class UserLogin(APIView):
+    def post(self, request):
         pass
