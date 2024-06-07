@@ -15,16 +15,22 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ["email", "username", "password", "profile_image"]
 
     def to_internal_value(self, data):
-        email = data.get('email')
-        if email and 'username' not in data:
-            data['username'] = email.split('@')[0]
+        email = data.get("email")
+        if email and "username" not in data:
+            data["username"] = email.split("@")[0]
         return super().to_internal_value(data)
-
 
     def create(self, validated_data):
         profile_image = validated_data.pop("profile_image", None)
-        user = User.objects.create(**validated_data)
+        password = validated_data.pop("password", None)
+
+        user = User(**validated_data)
+
+        if password:
+            user.set_password(password)
+
         if profile_image:
             user.profile_image = profile_image
-            user.save()
+
+        user.save()
         return user
