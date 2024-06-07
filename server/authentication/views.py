@@ -1,4 +1,3 @@
-from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework import status
@@ -6,7 +5,7 @@ from .models import User
 from .serializers import UserSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
-from server.utils import BaseEmail
+from .email import UserVerificationEmail
 from .utils import VerificationEmail
 import os
 
@@ -22,13 +21,11 @@ class UserRegistration(APIView):
             return verification_link
 
     def verification_email(self, data):
-        email = BaseEmail(
-            sender=os.environ.get("ADMIN_EMAIL"),
-            recipient=data.get("recepient"),
-            subject="Email verification",
+        return UserVerificationEmail(
+            sender=os.environ.get("NO_REPLY_EMAIL"),
+            recipient=data.get("recipient"),
             content=data.get("content"),
-        )
-        email.send_email()
+        ).send_verification_email()
 
     def post(self, request):
         data = request.data
@@ -49,13 +46,19 @@ class UserRegistration(APIView):
                             user_exist.id, request
                         )
                         email_data = {
-                            "recepient": user_exist.email,
+                            "recipient": user_exist.email,
                             "content": {
                                 "username": user_exist.username,
                                 "verification_link": verification_link,
                             },
                         }
-                        self.verification_email(email_data)
+                        email_sent = self.verification_email(email_data)
+
+                        if not email_sent:
+                            return ApiResponse.response_failed(
+                                message="Error occurred on server while sending verification email. Please register again!",
+                                status=500,
+                            )
                         return ApiResponse.response_succeed(
                             message=f"User is inactive. Account activation email is sent on {user_exist.email}!",
                             status=200,
@@ -64,13 +67,23 @@ class UserRegistration(APIView):
                 user = serializer.save()
                 verification_link = self.verification_token(user.id, request)
                 email_data = {
-                    "recepient": serializer.validated_data.get("email"),
+                    "recipient": serializer.validated_data.get("email"),
                     "content": {
                         "username": serializer.validated_data.get("username"),
                         "verification_link": verification_link,
                     },
                 }
-                self.verification_email(email_data)
+                email_sent = self.verification_email(email_data)
+                if not email_sent:
+                    return ApiResponse.response_failed(
+                        message="Error occurred on server while sending verification email. Please register again!",
+                        status=500,
+                    )
+                return ApiResponse.response_succeed(
+                    message="For verification, check your email",
+                    data=serializer.data,
+                    status=201,
+                )
 
             except IntegrityError as error:
                 if "unique constraint" in str(error).lower():
@@ -85,18 +98,12 @@ class UserRegistration(APIView):
                     status=500,
                 )
 
-            return ApiResponse.response_succeed(
-                message="For verification, check your email",
-                data=serializer.data,
-                status=201,
-            )
-
         return ApiResponse.response_failed(
             message="Error occurred on server while registering the user", status=500
         )
 
 
-class EmailVerification(APIView):
+class UserEmailVerification(APIView):
     def get(self, request):
         verification_token = request.GET.get("token")
 
