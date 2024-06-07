@@ -24,13 +24,15 @@ class UserSerializer(serializers.ModelSerializer):
         profile_image = validated_data.pop("profile_image", None)
         password = validated_data.pop("password", None)
 
-        user = User(**validated_data)
-
-        if password:
-            user.set_password(password)
+        if not password:
+            return "Password is required"
 
         if profile_image:
-            user.profile_image = profile_image
+            return "Profile image is required"
+
+        user = User(**validated_data)
+        user.profile_image = profile_image
+        user.set_password(password)
 
         user.save()
         return user
