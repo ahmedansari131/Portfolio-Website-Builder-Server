@@ -122,7 +122,8 @@ class UserEmailVerification(APIView):
                     return ApiResponse.response_failed(
                         message="Error occurred while saving verified user", status=500
                     )
-
+            elif isinstance(decoded_token, str):
+                return ApiResponse.response_failed(message=decoded_token, status=403)
             else:
                 return ApiResponse.response_failed(message=decoded_token, status=500)
         else:
