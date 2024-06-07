@@ -1,13 +1,19 @@
+from django.utils import timezone
+from datetime import timedelta
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework import status
 from .models import User
-from .serializers import UserSerializer
+from .serializers import UserSerializer, LoginSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
 from .utils import VerificationEmail
 import os
+from django.contrib.auth import authenticate
+from .serializers import MyTokenObtainPairSerializer
+from django.http import JsonResponse
 
 
 class UserRegistration(APIView):
@@ -134,4 +140,67 @@ class UserEmailVerification(APIView):
 
 class UserLogin(APIView):
     def post(self, request):
-        pass
+        data = request.data
+        serializer = LoginSerializer(data=data)
+
+        if serializer.is_valid(raise_exception=True):
+            email = serializer.validated_data.get("email")
+            password = serializer.validated_data.get("password")
+
+            try:
+                user = User.objects.get(email=email)
+                if user:
+                    if not user.is_active:
+                        return ApiResponse.response_failed(
+                            message=f"{user.username}'s account is not active. Please register again!",
+                            status=403,
+                        )
+
+            except User.DoesNotExist:
+                return ApiResponse.response_failed(
+                    message="User does not exist. Please register first!", status=403
+                )
+
+            authenticated_user = authenticate(
+                request,
+                email=email,
+                password=password,
+            )
+
+            if not authenticated_user:
+                return ApiResponse.response_failed(
+                    message="Invalid credentials", status=403
+                )
+
+            token_serializer = MyTokenObtainPairSerializer(
+                data={
+                    "email": email,
+                    "password": password,
+                }
+            )
+            if token_serializer.is_valid(raise_exception=True):
+                tokens = token_serializer.validated_data
+                response = JsonResponse({"status": 200})
+                access_token_lifetime = timedelta(
+                    minutes=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
+                    / 60
+                )
+                refresh_token_lifetime = timedelta(
+                    days=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].days
+                )
+                response.set_cookie(
+                    "access",
+                    tokens.get("access"),
+                    expires=timezone.now() + access_token_lifetime,
+                    secure=True,
+                )
+                response.set_cookie(
+                    "refresh",
+                    tokens.get("refresh"),
+                    expires=timezone.now() + refresh_token_lifetime,
+                    secure=True,
+                )
+                return response
+        return ApiResponse.response_failed(
+            message="Error occurred on server while login", status=500
+        )
