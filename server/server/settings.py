@@ -109,13 +109,22 @@ cloudinary.config(
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-
+# FOR DEVELOPMENT ->
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
+EMAIL_HOST = 'sandbox.smtp.mailtrap.io'
+EMAIL_HOST_USER = os.environ.get("HOST_USER")
+EMAIL_HOST_PASSWORD = os.environ.get("HOST_PASSWORD")
 EMAIL_PORT = os.environ.get("EMAIL_PORT")
-EMAIL_HOST_USER = os.environ.get("ADMIN_EMAIL")
-EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_PASSWORD")
-EMAIL_USE_TLS = True
+
+
+
+# FOR PRODUCTION ->
+# EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# EMAIL_HOST = "smtp.gmail.com"
+# EMAIL_PORT = os.environ.get("EMAIL_PORT")
+# EMAIL_HOST_USER = os.environ.get("ADMIN_EMAIL")
+# EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+# EMAIL_USE_TLS = True
 
 # CORS_ALLOWED_ORIGINS = [
 #     "http://localhost:5174",
