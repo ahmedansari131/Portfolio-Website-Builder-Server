@@ -94,7 +94,7 @@ class UserRegistration(APIView):
             except Exception as error:
                 print("Error ->", error)
                 return ApiResponse.response_failed(
-                    message="Error occurred on server. Please try registering again!",
+                    message="Error occurred on server while registering the user. Please try registering again!",
                     status=500,
                 )
 
