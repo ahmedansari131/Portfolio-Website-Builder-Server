@@ -27,7 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
         if not password:
             return "Password is required"
 
-        if profile_image:
+        if not profile_image:
             return "Profile image is required"
 
         user = User(**validated_data)
