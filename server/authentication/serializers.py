@@ -21,6 +21,7 @@ class UserSerializer(serializers.ModelSerializer):
         email = data.get("email")
         if email and "username" not in data:
             data["username"] = email.split("@")[0]
+
         return super().to_internal_value(data)
 
     def create(self, validated_data):
@@ -28,10 +29,7 @@ class UserSerializer(serializers.ModelSerializer):
         password = validated_data.pop("password", None)
 
         if not password:
-            return "Password is required"
-
-        if not profile_image:
-            return "Profile image is required"
+            raise serializers.ValidationError("Password is required")
 
         user = User(**validated_data)
         user.profile_image = profile_image
