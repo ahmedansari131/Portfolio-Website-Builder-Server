@@ -2,6 +2,9 @@ from rest_framework import serializers
 from .models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
+from django.contrib.auth import authenticate
+from django.db.models import Q
+from django.contrib.auth.hashers import check_password
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -41,15 +44,67 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(max_length=100)
+    identifier = serializers.CharField(max_length=100)
     password = serializers.CharField(write_only=True)
 
     class Meta:
         model = User
         fields = [
-            "email",
+            "identifier",
             "password",
         ]
+
+    def user_exist(self, data):
+        identifier = data
+
+        if not identifier:
+            return None
+
+        try:
+            user = User.objects.get(Q(email=identifier) | Q(username=identifier))
+            if user and not user.is_active:
+                return False
+
+            return user
+        except User.DoesNotExist:
+            return False
+
+    def authenticate(self, request, identifier, password):
+        try:
+            user = User.objects.get(Q(email=identifier) | Q(username=identifier))
+        except User.DoesNotExist:
+            return None
+
+        if user and user.check_password(password):
+            return user
+        return None
+
+    def validate(self, data):
+        identifier = data.get("identifier")
+        password = data.get("password")
+        request = self.context.get("request")
+        authentication_errors = None
+        user = None
+
+        if not identifier:
+            raise serializers.ValidationError(
+                "Either username or email must be provided"
+            )
+
+        does_user_exist = self.user_exist(data=identifier)
+        if not does_user_exist:
+            raise serializers.ValidationError(
+                "User does not exist. Please register first!"
+            )
+
+        if does_user_exist:
+            user = self.authenticate(
+                request=request, identifier=identifier, password=password
+            )
+
+        data["user"] = user
+        data["error"] = authentication_errors
+        return data
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
