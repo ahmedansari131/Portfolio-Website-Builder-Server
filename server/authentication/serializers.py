@@ -119,3 +119,27 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["email"] = user.email
 
         return token
+
+
+class ResetPasswordSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ["new_password", "password"]
+
+    def validate(self, data):
+        password = data.get("password")
+        request = self.context.get("request")
+
+        try:
+            user = User.objects.get(id=request.user.id)
+            if user and not user.check_password(password):
+                raise serializers.ValidationError("Incorrect password")
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User does not exist")
+        except Exception as error:
+            raise serializers.ValidationError(error)
+
+        return data
