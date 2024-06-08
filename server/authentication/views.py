@@ -148,7 +148,7 @@ class UserLogin(APIView):
 
             if not user:
                 return ApiResponse.response_failed(
-                    message="User does not exist", status=403
+                    message=serializer.validated_data.get("error"), status=403
                 )
             email = user.email
             password = serializer.validated_data.get("password")
