@@ -141,36 +141,17 @@ class UserEmailVerification(APIView):
 class UserLogin(APIView):
     def post(self, request):
         data = request.data
-        serializer = LoginSerializer(data=data)
+        serializer = LoginSerializer(data=data, context={"request": request})
 
         if serializer.is_valid(raise_exception=True):
-            email = serializer.validated_data.get("email")
+            user = serializer.validated_data.get("user")
+
+            if not user:
+                return ApiResponse.response_failed(
+                    message="User does not exist", status=403
+                )
+            email = user.email
             password = serializer.validated_data.get("password")
-
-            try:
-                user = User.objects.get(email=email)
-                if user:
-                    if not user.is_active:
-                        return ApiResponse.response_failed(
-                            message=f"{user.username}'s account is not active. Please register again!",
-                            status=403,
-                        )
-
-            except User.DoesNotExist:
-                return ApiResponse.response_failed(
-                    message="User does not exist. Please register first!", status=403
-                )
-
-            authenticated_user = authenticate(
-                request,
-                email=email,
-                password=password,
-            )
-
-            if not authenticated_user:
-                return ApiResponse.response_failed(
-                    message="Invalid credentials", status=403
-                )
 
             token_serializer = MyTokenObtainPairSerializer(
                 data={
