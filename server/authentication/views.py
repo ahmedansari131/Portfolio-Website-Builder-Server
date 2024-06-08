@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework import status
 from .models import User
-from .serializers import UserSerializer, LoginSerializer
+from .serializers import UserSerializer, LoginSerializer, ResetPasswordSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
@@ -185,3 +185,37 @@ class UserLogin(APIView):
         return ApiResponse.response_failed(
             message="Error occurred on server while login", status=500
         )
+
+
+class ResetPassword(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data
+        user_id = request.user.id
+        print(user_id)
+
+        serializer = ResetPasswordSerializer(data=data, context={"request": request})
+
+        if serializer.is_valid(raise_exception=True):
+            try:
+                user = User.objects.get(id=user_id)
+                user.set_password(serializer.validated_data.get("new_password"))
+                user.save()
+                return ApiResponse.response_succeed(
+                    message="Password reset successfully!", status=201
+                )
+
+            except User.DoesNotExist:
+                return ApiResponse.response_failed(
+                    message="User does not exist",
+                    status=404,
+                )
+            except Exception as error:
+                print("Error occurred while resetting the password -> ", error)
+                return ApiResponse.response_failed(
+                    message="Error occurred on server while resetting the password",
+                    status=500,
+                )
+
+        return ApiResponse.response_succeed(message="Successful", status=200)
