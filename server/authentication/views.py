@@ -1,13 +1,19 @@
+from django.utils import timezone
+from datetime import timedelta
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework import status
 from .models import User
-from .serializers import UserSerializer
+from .serializers import UserSerializer, LoginSerializer
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
 from .utils import VerificationEmail
 import os
+from django.contrib.auth import authenticate
+from .serializers import MyTokenObtainPairSerializer
+from django.http import JsonResponse
 
 
 class UserRegistration(APIView):
@@ -38,7 +44,7 @@ class UserRegistration(APIView):
                 if user_exist:
                     is_user_active = user_exist.is_active
                     if is_user_active:
-                        return ApiResponse.response_succeed(
+                        return ApiResponse.response_failed(
                             message="User already exist. Please login!", status=403
                         )
                     else:
@@ -64,7 +70,9 @@ class UserRegistration(APIView):
                             status=200,
                         )
 
+                print("Before save")
                 user = serializer.save()
+                print("After save", user)
                 verification_link = self.verification_token(user.id, request)
                 email_data = {
                     "recipient": serializer.validated_data.get("email"),
@@ -134,4 +142,48 @@ class UserEmailVerification(APIView):
 
 class UserLogin(APIView):
     def post(self, request):
-        pass
+        data = request.data
+        serializer = LoginSerializer(data=data, context={"request": request})
+
+        if serializer.is_valid(raise_exception=True):
+            user = serializer.validated_data.get("user")
+
+            if not user:
+                return ApiResponse.response_failed(
+                    message=serializer.validated_data.get("error"), status=403
+                )
+            email = user.email
+            password = serializer.validated_data.get("password")
+
+            token_serializer = MyTokenObtainPairSerializer(
+                data={
+                    "email": email,
+                    "password": password,
+                }
+            )
+            if token_serializer.is_valid(raise_exception=True):
+                tokens = token_serializer.validated_data
+                response = JsonResponse({"status": 200})
+                access_token_lifetime = timedelta(
+                    minutes=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
+                    / 60
+                )
+                refresh_token_lifetime = timedelta(
+                    days=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].days
+                )
+                response.set_cookie(
+                    "access",
+                    tokens.get("access"),
+                    expires=timezone.now() + access_token_lifetime,
+                    secure=True,
+                )
+                response.set_cookie(
+                    "refresh",
+                    tokens.get("refresh"),
+                    expires=timezone.now() + refresh_token_lifetime,
+                    secure=True,
+                )
+                return response
+        return ApiResponse.response_failed(
+            message="Error occurred on server while login", status=500
+        )
