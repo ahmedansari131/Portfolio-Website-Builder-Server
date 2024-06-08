@@ -1,10 +1,8 @@
 from rest_framework import serializers
 from .models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
-from django.contrib.auth import authenticate
 from django.db.models import Q
-from django.contrib.auth.hashers import check_password
+from server.utils import BaseResponse
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -73,17 +71,17 @@ class LoginSerializer(serializers.ModelSerializer):
         try:
             user = User.objects.get(Q(email=identifier) | Q(username=identifier))
         except User.DoesNotExist:
-            return None
+            return BaseResponse.error(message="User does not exist")
 
         if user and user.check_password(password):
             return user
-        return None
+        return BaseResponse.error(message="Incorrect password")
 
     def validate(self, data):
         identifier = data.get("identifier")
         password = data.get("password")
         request = self.context.get("request")
-        authentication_errors = None
+        authentication_error = None
         user = None
 
         if not identifier:
@@ -98,12 +96,18 @@ class LoginSerializer(serializers.ModelSerializer):
             )
 
         if does_user_exist:
-            user = self.authenticate(
+            is_authenticated_user = self.authenticate(
                 request=request, identifier=identifier, password=password
             )
 
+            if isinstance(is_authenticated_user, dict):
+                authentication_error = is_authenticated_user.get("message")
+            else:
+                user = is_authenticated_user
+
         data["user"] = user
-        data["error"] = authentication_errors
+        data["error"] = authentication_error
+        print(data)
         return data
 
 
