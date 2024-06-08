@@ -70,9 +70,7 @@ class UserRegistration(APIView):
                             status=200,
                         )
 
-                print("Before save")
                 user = serializer.save()
-                print("After save", user)
                 verification_link = self.verification_token(user.id, request)
                 email_data = {
                     "recipient": serializer.validated_data.get("email"),
