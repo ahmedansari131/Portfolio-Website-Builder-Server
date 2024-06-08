@@ -44,7 +44,7 @@ class UserRegistration(APIView):
                 if user_exist:
                     is_user_active = user_exist.is_active
                     if is_user_active:
-                        return ApiResponse.response_succeed(
+                        return ApiResponse.response_failed(
                             message="User already exist. Please login!", status=403
                         )
                     else:
@@ -70,7 +70,9 @@ class UserRegistration(APIView):
                             status=200,
                         )
 
+                print("Before save")
                 user = serializer.save()
+                print("After save", user)
                 verification_link = self.verification_token(user.id, request)
                 email_data = {
                     "recipient": serializer.validated_data.get("email"),
