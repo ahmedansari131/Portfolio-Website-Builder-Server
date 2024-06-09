@@ -1,25 +1,31 @@
 from django.utils import timezone
 from datetime import timedelta
 from django.conf import settings
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework import status
 from .models import User
-from .serializers import UserSerializer, LoginSerializer, ResetPasswordSerializer
+from .serializers import (
+    UserSerializer,
+    LoginSerializer,
+    ResetPasswordSerializer,
+    ForgotPasswordSerializer,
+)
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
-from .utils import VerificationEmail
+from .utils import Token, CustomRefreshToken
 import os
 from django.contrib.auth import authenticate
 from .serializers import MyTokenObtainPairSerializer
 from django.http import JsonResponse
 from server.email import BaseEmail
+from .constants import DIRECT_LOGIN, RESET_FORGOT_PASSWORD
 
 
 class UserRegistration(APIView):
     def verification_token(self, user_id, request):
-        token = VerificationEmail.generate_token(user_id)
+        token = Token.generate_token(user_id)
 
         if token:
             verification_link = request.build_absolute_uri(
@@ -115,7 +121,7 @@ class UserEmailVerification(APIView):
         verification_token = request.GET.get("token")
 
         if verification_token:
-            decoded_token = VerificationEmail.verify_token(verification_token)
+            decoded_token = Token.verify_token(verification_token)
 
             if isinstance(decoded_token, dict) and "id" in decoded_token:
                 try:
@@ -228,3 +234,70 @@ class ResetPassword(APIView):
                 )
 
         return ApiResponse.response_succeed(message="Successful", status=200)
+
+
+class ForgotPassword(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        token_param = request.GET.get("token")
+        token = Token(token_type=DIRECT_LOGIN)
+        verified_token = token.verify_token(token=token_param)
+
+        user_id = verified_token.get("id")
+        token_type = verified_token.get("token_type")
+
+        if token_type == DIRECT_LOGIN and user_id:
+            try:
+                user = User.objects.get(id=user_id)
+                refresh = CustomRefreshToken.for_user(user)
+                tokens = {"access": refresh.access_token, "refresh": refresh}
+                return token.simple_jwt_response(tokens=tokens)
+            except User.DoesNotExist:
+                return ApiResponse.response_failed(
+                    message="User does not exist", status=404
+                )
+            except Exception as error:
+                print("Error occurred while issuing the tokens -> ", error)
+                return ApiResponse.response_failed(
+                    message="Error occurred on the server", status=500
+                )
+        return ApiResponse.response_failed(
+            message="Error occurred on server", status=500
+        )
+
+    def post(self, request):
+        data = request.data
+        serializer = ForgotPasswordSerializer(data=data)
+
+        if serializer.is_valid(raise_exception=True):
+            user = serializer.validated_data.get("user")
+            token = Token(user_id=user.id, token_type=DIRECT_LOGIN)
+            generated_token = token.generate_token()
+            login_url = request.build_absolute_uri(
+                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_token}'
+            )
+            reset_password_url = request.build_absolute_uri(
+                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_token}'
+            )
+
+            forgot_password_email = BaseEmail(
+                sender=os.environ.get("NO_REPLY_EMAIL"),
+                recipient=user.email,
+                message="Forgot Password",
+                content={
+                    "username": user.username,
+                    "login_url": login_url,
+                    "reset_password_url": reset_password_url,
+                },
+                subject="Forgot Password",
+                template_path="email_templates/forgot_password_email.html",
+            )
+            email_sent = forgot_password_email.send_email()
+
+            return ApiResponse.response_succeed(
+                message=f"Email is sent on your {user.email}", status=200
+            )
+        return ApiResponse.response_failed(
+            message="Error occurred on server", status=500
+        )
