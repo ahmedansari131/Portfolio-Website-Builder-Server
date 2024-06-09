@@ -14,6 +14,7 @@ import os
 from django.contrib.auth import authenticate
 from .serializers import MyTokenObtainPairSerializer
 from django.http import JsonResponse
+from server.email import BaseEmail
 
 
 class UserRegistration(APIView):
@@ -193,7 +194,6 @@ class ResetPassword(APIView):
     def post(self, request):
         data = request.data
         user_id = request.user.id
-        print(user_id)
 
         serializer = ResetPasswordSerializer(data=data, context={"request": request})
 
@@ -202,6 +202,15 @@ class ResetPassword(APIView):
                 user = User.objects.get(id=user_id)
                 user.set_password(serializer.validated_data.get("new_password"))
                 user.save()
+                reset_email = BaseEmail(
+                    sender=os.environ.get("NO_REPLY_EMAIL"),
+                    recipient=user.email,
+                    subject="Reset Password",
+                    message="Password reset successfully",
+                    template_path="email_templates/reset_password_email.html",
+                    content={"username": user.username},
+                )
+                email_sent = reset_email.send_email()
                 return ApiResponse.response_succeed(
                     message="Password reset successfully!", status=201
                 )
