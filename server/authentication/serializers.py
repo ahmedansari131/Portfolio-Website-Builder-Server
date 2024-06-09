@@ -50,7 +50,8 @@ class LoginSerializer(serializers.ModelSerializer):
             "password",
         ]
 
-    def user_exist(self, data):
+    @staticmethod
+    def user_exist(data):
         identifier = data
 
         if not identifier:
@@ -59,11 +60,11 @@ class LoginSerializer(serializers.ModelSerializer):
         try:
             user = User.objects.get(Q(email=identifier) | Q(username=identifier))
             if user and not user.is_active:
-                return False
+                return None
 
             return user
         except User.DoesNotExist:
-            return False
+            return None
 
     def authenticate(self, request, identifier, password):
         try:
@@ -110,6 +111,7 @@ class LoginSerializer(serializers.ModelSerializer):
 
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+
     @classmethod
     def get_token(cls, user):
         print(user)
@@ -142,4 +144,23 @@ class ResetPasswordSerializer(serializers.ModelSerializer):
         except Exception as error:
             raise serializers.ValidationError(error)
 
+        return data
+
+
+class ForgotPasswordSerializer(serializers.ModelSerializer):
+    identifier = serializers.CharField(max_length=100)
+
+    class Meta:
+        model = User
+        fields = ["identifier"]
+
+    def validate(self, data):
+        identifier = data.get("identifier")
+
+        user = LoginSerializer.user_exist(data=identifier)
+
+        if not user:
+            raise serializers.ValidationError("User does not exist")
+
+        data["user"] = user
         return data
