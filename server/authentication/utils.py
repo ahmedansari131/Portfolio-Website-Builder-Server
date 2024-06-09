@@ -4,8 +4,7 @@ from datetime import timedelta
 import os
 from .models import User
 
-
-class VerificationEmail:
+class Token:
     @staticmethod
     def generate_token(user_id):
         if not user_id:
@@ -44,3 +43,4 @@ class VerificationEmail:
             return "Invalid token"
         except Exception as error:
             return "Error occurred on server while decoding verification token"
+        
