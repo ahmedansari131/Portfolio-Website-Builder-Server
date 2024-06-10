@@ -48,7 +48,6 @@ class UserRegistration(APIView):
             try:
                 email = data.get("email")
                 user_exist = User.objects.filter(email=email).first()
-                print(user_exist)
                 if user_exist:
                     is_user_active = user_exist.is_active
                     if is_user_active:
@@ -80,7 +79,6 @@ class UserRegistration(APIView):
 
                 user = serializer.save()
                 verification_link = self.verification_token(user.id, request)
-                print(verification_link)
                 email_data = {
                     "recipient": serializer.validated_data.get("email"),
                     "content": {
