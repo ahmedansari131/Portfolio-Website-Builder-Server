@@ -15,7 +15,8 @@ from .serializers import (
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
-from .utils import Token, CustomRefreshToken, get_existing_user
+from .utils import get_existing_user
+from .jwt_token import Token, CustomRefreshToken
 import os
 from django.contrib.auth import authenticate
 from .serializers import MyTokenObtainPairSerializer
