@@ -164,3 +164,11 @@ class ForgotPasswordSerializer(serializers.ModelSerializer):
 
         data["user"] = user
         return data
+
+
+class ChangeForgotPasswordSerializer(serializers.ModelSerializer):
+    new_password = serializers.CharField(max_length=100, write_only=True)
+
+    class Meta:
+        model = User
+        fields = ["new_password"]
