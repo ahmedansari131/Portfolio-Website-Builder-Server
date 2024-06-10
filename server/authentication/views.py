@@ -335,7 +335,9 @@ class ForgotPassword(APIView):
 
         user_id = verified_token.get("id")
 
-        serializer = ChangeForgotPasswordSerializer(data=data)
+        serializer = ChangeForgotPasswordSerializer(
+            data=data, context={"user_id": user_id}
+        )
         if serializer.is_valid(raise_exception=True):
             new_password = serializer.validated_data.get("new_password")
             try:
