@@ -173,3 +173,21 @@ class ChangeForgotPasswordSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["new_password"]
+
+    def validate(self, data):
+        new_password = data.get("new_password")
+        user_id = self.context.get("user_id")
+        try:
+            user = get_existing_user(user_id=user_id)
+
+            if not isinstance(user, User):
+                raise serializers.ValidationError(user)
+
+            if user.check_password(new_password):
+                raise serializers.ValidationError(
+                    "New password must be different from previous password"
+                )
+            return data
+        except Exception as error:
+            raise serializers.ValidationError(error)
+
