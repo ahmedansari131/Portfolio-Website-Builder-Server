@@ -3,7 +3,6 @@ from datetime import timedelta
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
-from rest_framework import status
 from .models import User
 from .serializers import (
     ChangeForgotPasswordSerializer,
@@ -18,7 +17,6 @@ from .email import UserVerificationEmail
 from .utils import get_existing_user
 from .jwt_token import Token, CustomRefreshToken
 import os
-from django.contrib.auth import authenticate
 from .serializers import MyTokenObtainPairSerializer
 from django.http import JsonResponse
 from server.email import BaseEmail
