@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework import status
 from .models import User
 from .serializers import (
+    ChangeForgotPasswordSerializer,
     UserSerializer,
     LoginSerializer,
     ResetPasswordSerializer,
@@ -14,19 +15,19 @@ from .serializers import (
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
-from .utils import Token, CustomRefreshToken
+from .utils import Token, CustomRefreshToken, get_existing_user
 import os
 from django.contrib.auth import authenticate
 from .serializers import MyTokenObtainPairSerializer
 from django.http import JsonResponse
 from server.email import BaseEmail
-from .constants import DIRECT_LOGIN, RESET_FORGOT_PASSWORD
+from .constants import DIRECT_LOGIN, CHANGE_FORGOT_PASSWORD
 
 
 class UserRegistration(APIView):
     def verification_token(self, user_id, request):
-        token = Token.generate_token(user_id)
-
+        tokenization = Token(user_id=user_id)
+        token = tokenization.generate_token()
         if token:
             verification_link = request.build_absolute_uri(
                 f'/{os.environ.get("API_PATH_PREFIX")}/verify-email/?token={token}'
@@ -48,6 +49,7 @@ class UserRegistration(APIView):
             try:
                 email = data.get("email")
                 user_exist = User.objects.filter(email=email).first()
+                print(user_exist)
                 if user_exist:
                     is_user_active = user_exist.is_active
                     if is_user_active:
@@ -79,6 +81,7 @@ class UserRegistration(APIView):
 
                 user = serializer.save()
                 verification_link = self.verification_token(user.id, request)
+                print(verification_link)
                 email_data = {
                     "recipient": serializer.validated_data.get("email"),
                     "content": {
@@ -121,7 +124,8 @@ class UserEmailVerification(APIView):
         verification_token = request.GET.get("token")
 
         if verification_token:
-            decoded_token = Token.verify_token(verification_token)
+            tokenization = Token()
+            decoded_token = tokenization.verify_token(verification_token)
 
             if isinstance(decoded_token, dict) and "id" in decoded_token:
                 try:
@@ -244,6 +248,9 @@ class ForgotPassword(APIView):
         token = Token(token_type=DIRECT_LOGIN)
         verified_token = token.verify_token(token=token_param)
 
+        if isinstance(verified_token, str):
+            return ApiResponse.response_failed(message=verified_token, status=403)
+
         user_id = verified_token.get("id")
         token_type = verified_token.get("token_type")
 
@@ -262,6 +269,14 @@ class ForgotPassword(APIView):
                 return ApiResponse.response_failed(
                     message="Error occurred on the server", status=500
                 )
+        elif token_type == CHANGE_FORGOT_PASSWORD and user_id:
+            user = get_existing_user(user_id=user_id)
+            if isinstance(user, User):
+                return ApiResponse.response_succeed(
+                    message="Token is valid", status=200
+                )
+            else:
+                return ApiResponse.response_failed(message=user, status=404)
         return ApiResponse.response_failed(
             message="Error occurred on server", status=500
         )
@@ -272,13 +287,20 @@ class ForgotPassword(APIView):
 
         if serializer.is_valid(raise_exception=True):
             user = serializer.validated_data.get("user")
-            token = Token(user_id=user.id, token_type=DIRECT_LOGIN)
-            generated_token = token.generate_token()
-            login_url = request.build_absolute_uri(
-                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_token}'
+
+            for_login_token = Token(user_id=user.id, token_type=DIRECT_LOGIN)
+            generated_login_token = for_login_token.generate_token()
+
+            for_change_password_token = Token(
+                user_id=user.id, token_type=CHANGE_FORGOT_PASSWORD
             )
-            reset_password_url = request.build_absolute_uri(
-                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_token}'
+            generated_change_password_token = for_change_password_token.generate_token()
+
+            login_url = request.build_absolute_uri(
+                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_login_token}'
+            )
+            change_password_url = request.build_absolute_uri(
+                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_change_password_token}'
             )
 
             forgot_password_email = BaseEmail(
@@ -288,7 +310,7 @@ class ForgotPassword(APIView):
                 content={
                     "username": user.username,
                     "login_url": login_url,
-                    "reset_password_url": reset_password_url,
+                    "reset_password_url": change_password_url,
                 },
                 subject="Forgot Password",
                 template_path="email_templates/forgot_password_email.html",
@@ -300,4 +322,38 @@ class ForgotPassword(APIView):
             )
         return ApiResponse.response_failed(
             message="Error occurred on server", status=500
+        )
+
+    def patch(self, request):
+        data = request.data
+
+        tokenization = Token(token_type=CHANGE_FORGOT_PASSWORD)
+        verified_token = tokenization.verify_token(token=data.get("token"))
+        if isinstance(verified_token, str):
+            return ApiResponse.response_failed(message=verified_token, status=403)
+
+        user_id = verified_token.get("id")
+
+        serializer = ChangeForgotPasswordSerializer(data=data)
+        if serializer.is_valid(raise_exception=True):
+            new_password = serializer.validated_data.get("new_password")
+            try:
+                user = get_existing_user(user_id=user_id)
+                if isinstance(user, User):
+                    user.set_password(new_password)
+                    user.save()
+                    return ApiResponse.response_succeed(
+                        message="Password changed successfully", status=201
+                    )
+                else:
+                    return ApiResponse.response_failed(message=user, status=404)
+            except Exception as error:
+                print("Error occurred while changing the password -> ", error)
+                return ApiResponse.response_failed(
+                    message="Error occurred on server while changing the password",
+                    status=500,
+                )
+
+        return ApiResponse.response_failed(
+            message="Error occurred on server while changing the password", status=500
         )
