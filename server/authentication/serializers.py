@@ -3,6 +3,7 @@ from .models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db.models import Q
 from server.utils import BaseResponse
+from .utils import get_existing_user
 
 
 class UserSerializer(serializers.ModelSerializer):
