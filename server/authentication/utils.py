@@ -6,7 +6,7 @@ from .models import User
 from .serializers import MyTokenObtainPairSerializer
 from django.http.response import JsonResponse
 from django.conf import settings
-from .constants import RESET_FORGOT_PASSWORD, DIRECT_LOGIN
+from .constants import CHANGE_FORGOT_PASSWORD, DIRECT_LOGIN
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
@@ -49,7 +49,7 @@ class Token:
             if user and user.is_active:
                 if (
                     self.token_type == DIRECT_LOGIN
-                    or self.token_type == RESET_FORGOT_PASSWORD
+                    or self.token_type == CHANGE_FORGOT_PASSWORD
                 ):
                     return decoded_token
                 return (
@@ -57,6 +57,13 @@ class Token:
                 )
             return decoded_token
         except jwt.ExpiredSignatureError:
+            if (
+                self.token_type == DIRECT_LOGIN
+                or self.token_type == CHANGE_FORGOT_PASSWORD
+            ):
+                return (
+                    "Your request for forgot password is expired. Please request again!"
+                )
             return "Token has expired. Please register again."
         except jwt.InvalidTokenError:
             return "Invalid token"
@@ -106,3 +113,13 @@ class CustomRefreshToken(RefreshToken):
         token["username"] = user.username
 
         return token
+
+
+def get_existing_user(user_id):
+    try:
+        user = User.objects.get(id=user_id)
+        return user
+    except User.DoesNotExist:
+        return "User does not exist"
+    except Exception as error:
+        return error
