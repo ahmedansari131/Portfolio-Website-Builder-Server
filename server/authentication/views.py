@@ -20,7 +20,7 @@ import os
 from .serializers import MyTokenObtainPairSerializer
 from server.email import BaseEmail
 from .constants import DIRECT_LOGIN, CHANGE_FORGOT_PASSWORD
-
+from django.http import JsonResponse
 
 class UserRegistration(APIView):
     def verification_token(self, user_id, request):
@@ -129,7 +129,8 @@ class UserEmailVerification(APIView):
                     user.save()
 
                     return ApiResponse.response_succeed(
-                        message=f"{user.username} is verified and can login.", status=200
+                        message=f"{user.username} is verified and can login.",
+                        status=200,
                     )
                 except Exception as error:
                     return ApiResponse.response_failed(
