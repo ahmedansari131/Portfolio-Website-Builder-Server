@@ -19,9 +19,18 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ["email", "username", "password", "profile_image", "is_terms_agree"]
 
+    def validate_password(self, value):
+        if len(value) < 8:
+            raise serializers.ValidationError(
+                "Password must be at least 8 characters long."
+            )
+        return value
+
     def validate(self, data):
         if not data.get("is_terms_agree"):
-            raise serializers.ValidationError("Terms and conditions must be agreed before registering")
+            raise serializers.ValidationError(
+                "Terms and conditions must be agreed before registering"
+            )
         return data
 
     def to_internal_value(self, data):
