@@ -18,7 +18,6 @@ from .utils import get_existing_user
 from .jwt_token import Token, CustomRefreshToken
 import os
 from .serializers import MyTokenObtainPairSerializer
-from django.http import JsonResponse
 from server.email import BaseEmail
 from .constants import DIRECT_LOGIN, CHANGE_FORGOT_PASSWORD
 
@@ -28,8 +27,8 @@ class UserRegistration(APIView):
         tokenization = Token(user_id=user_id)
         token = tokenization.generate_token()
         if token:
-            verification_link = request.build_absolute_uri(
-                f'/{os.environ.get("API_PATH_PREFIX")}/verify-email/?token={token}'
+            verification_link = (
+                f'{os.environ.get("CLIENT_PATH_PREFIX")}/verify-email/?token={token}'
             )
             return verification_link
 
@@ -119,7 +118,6 @@ class UserRegistration(APIView):
 class UserEmailVerification(APIView):
     def get(self, request):
         verification_token = request.GET.get("token")
-
         if verification_token:
             tokenization = Token()
             decoded_token = tokenization.verify_token(verification_token)
@@ -129,8 +127,9 @@ class UserEmailVerification(APIView):
                     user = User.objects.get(id=decoded_token["id"])
                     user.is_active = True
                     user.save()
+
                     return ApiResponse.response_succeed(
-                        message="User is verified and can login.", status=200
+                        message=f"{user.username} is verified and can login.", status=200
                     )
                 except Exception as error:
                     return ApiResponse.response_failed(
