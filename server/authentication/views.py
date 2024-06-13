@@ -22,6 +22,7 @@ from server.email import BaseEmail
 from .constants import DIRECT_LOGIN, CHANGE_FORGOT_PASSWORD
 from django.http import JsonResponse
 
+
 class UserRegistration(APIView):
     def verification_token(self, user_id, request):
         tokenization = Token(user_id=user_id)
@@ -46,8 +47,17 @@ class UserRegistration(APIView):
         if serializer.is_valid(raise_exception=True):
             try:
                 email = data.get("email")
+                password = data.get("password")
                 user_exist = User.objects.filter(email=email).first()
+
                 if user_exist:
+                    is_valid_user = user_exist.check_password(password)
+
+                    if not is_valid_user:
+                        return ApiResponse.response_failed(
+                            message={"password": "Incorrect password"}, status=403
+                        )
+
                     is_user_active = user_exist.is_active
                     if is_user_active:
                         return ApiResponse.response_failed(
