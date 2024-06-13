@@ -41,6 +41,7 @@ class User(AbstractBaseUser):
     is_admin = models.BooleanField(default=False)
     profile_image = CloudinaryField("Profile image", default="", folder="portfolio_website_builder/profile_image/")
     refresh_token = models.TextField(null=True)
+    is_terms_agree = models.BooleanField(default=False, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
