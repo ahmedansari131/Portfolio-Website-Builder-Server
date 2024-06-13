@@ -13,10 +13,16 @@ class UserSerializer(serializers.ModelSerializer):
     )  # Excluded when returning the user
     profile_image = serializers.ImageField(required=False)
     username = serializers.CharField(required=True)
+    is_terms_agree = serializers.BooleanField(default=False)
 
     class Meta:
         model = User
-        fields = ["email", "username", "password", "profile_image"]
+        fields = ["email", "username", "password", "profile_image", "is_terms_agree"]
+
+    def validate(self, data):
+        if not data.get("is_terms_agree"):
+            raise serializers.ValidationError("Terms and conditions must be agreed before registering")
+        return data
 
     def to_internal_value(self, data):
         email = data.get("email")
@@ -190,4 +196,3 @@ class ChangeForgotPasswordSerializer(serializers.ModelSerializer):
             return data
         except Exception as error:
             raise serializers.ValidationError(error)
-
