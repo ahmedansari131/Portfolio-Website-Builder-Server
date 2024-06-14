@@ -139,3 +139,6 @@ GitHub.sublime-settings
 
 # AppMigrations
 server/authentication/migrations/
+
+# For development, Remove in production
+note.txt
