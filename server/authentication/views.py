@@ -166,7 +166,7 @@ class UserLogin(APIView):
 
             if not user:
                 return ApiResponse.response_failed(
-                    message=serializer.validated_data.get("error"), status=403
+                    message=serializer.validated_data.get("message"), status=403
                 )
             email = user.email
             password = serializer.validated_data.get("password")
@@ -191,13 +191,17 @@ class UserLogin(APIView):
                     "access",
                     tokens.get("access"),
                     expires=timezone.now() + access_token_lifetime,
-                    secure=True,
+                    # secure=True,
+                    path="/",
+                    httponly=True,
                 )
                 response.set_cookie(
                     "refresh",
                     tokens.get("refresh"),
                     expires=timezone.now() + refresh_token_lifetime,
-                    secure=True,
+                    # secure=True,
+                    path="/",
+                    httponly=True,
                 )
                 return response
         return ApiResponse.response_failed(
