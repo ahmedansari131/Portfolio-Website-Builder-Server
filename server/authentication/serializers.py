@@ -66,63 +66,41 @@ class LoginSerializer(serializers.ModelSerializer):
             "password",
         ]
 
-    @staticmethod
-    def user_exist(data):
-        identifier = data
-
-        if not identifier:
-            return None
-
-        try:
-            user = User.objects.get(Q(email=identifier) | Q(username=identifier))
-            if user and not user.is_active:
-                return None
-
-            return user
-        except User.DoesNotExist:
-            return None
-
     def authenticate(self, request, identifier, password):
         try:
             user = User.objects.get(Q(email=identifier) | Q(username=identifier))
         except User.DoesNotExist:
-            return BaseResponse.error(message="User does not exist")
+            return {"message": "User does not exist"}
 
-        if user and user.check_password(password):
-            return user
-        return BaseResponse.error(message="Incorrect password")
+        if user and not user.check_password(password):
+            return {"message": "Incorrect password"}
+        return user
+
+    def validate_identifier(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "Either username or email must be provided"
+            )
+        return value
 
     def validate(self, data):
         identifier = data.get("identifier")
         password = data.get("password")
+        print(identifier, password)
         request = self.context.get("request")
-        authentication_error = None
         user = None
 
-        if not identifier:
-            raise serializers.ValidationError(
-                "Either username or email must be provided"
-            )
+        authenticated_user = self.authenticate(
+            request=request, identifier=identifier, password=password
+        )
 
-        does_user_exist = self.user_exist(data=identifier)
-        if not does_user_exist:
-            raise serializers.ValidationError(
-                "User does not exist. Please register first!"
-            )
+        if not isinstance(authenticated_user, User):
+            print(authenticated_user)
+            return BaseResponse.error(message=authenticated_user.get("message"))
 
-        if does_user_exist:
-            is_authenticated_user = self.authenticate(
-                request=request, identifier=identifier, password=password
-            )
-
-            if isinstance(is_authenticated_user, dict):
-                authentication_error = is_authenticated_user.get("message")
-            else:
-                user = is_authenticated_user
+        user = authenticated_user
 
         data["user"] = user
-        data["error"] = authentication_error
-        print(data)
         return data
 
 
