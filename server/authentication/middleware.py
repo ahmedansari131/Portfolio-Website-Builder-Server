@@ -23,24 +23,18 @@ class CookieMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Retrieve the cookie value
         access_token = request.COOKIES.get("access")
 
-        if not access_token:
-            request.user = None
-            return "Token is not provided"
-
-        try:
-            verified_token = verify_simple_jwt(token=access_token)
-            request.user = {"email": verified_token.get("email"), "username": verified_token.get("username")}
-        except Exception as error:
-            return str(error)
-
-        # if access_token:
-        #     request.auth_token = auth_token
-        # else:
-        #     request.auth_token = None
-        #     # Optionally, handle the missing auth_token case here
+        if access_token:
+            try:
+                verified_token = verify_simple_jwt(token=access_token)
+                request.user = {
+                    "email": verified_token.get("email"),
+                    "username": verified_token.get("username"),
+                }
+            except Exception as error:
+                print("error ->", error)
+                raise error
 
         response = self.get_response(request)
         return response
