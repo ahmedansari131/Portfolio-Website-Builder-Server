@@ -70,10 +70,11 @@ class LoginSerializer(serializers.ModelSerializer):
         try:
             user = User.objects.get(Q(email=identifier) | Q(username=identifier))
         except User.DoesNotExist:
-            return {"message": "User does not exist"}
+            return {"message": {"identifier": "User does not exist"}}
 
         if user and not user.check_password(password):
-            return {"message": "Incorrect password"}
+            return {"message": {"password": "Incorrect password"}}
+        print(request.user)
         return user
 
     def validate_identifier(self, value):
@@ -86,7 +87,6 @@ class LoginSerializer(serializers.ModelSerializer):
     def validate(self, data):
         identifier = data.get("identifier")
         password = data.get("password")
-        print(identifier, password)
         request = self.context.get("request")
         user = None
 
@@ -95,7 +95,6 @@ class LoginSerializer(serializers.ModelSerializer):
         )
 
         if not isinstance(authenticated_user, User):
-            print(authenticated_user)
             return BaseResponse.error(message=authenticated_user.get("message"))
 
         user = authenticated_user
@@ -108,7 +107,6 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     @classmethod
     def get_token(cls, user):
-        print(user)
         token = super().get_token(user)
 
         token["username"] = user.username
