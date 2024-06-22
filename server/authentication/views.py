@@ -378,8 +378,7 @@ class ForgotPassword(APIView):
         )
 
 
-class UserIdentity(APIView):
-
+class UserProfile(APIView):
     def get(self, request):
         cookie = request.COOKIES
         if not cookie:
@@ -449,5 +448,39 @@ class UserSignout(APIView):
             print("Error occurred while signing out the user -> ", error)
             return ApiResponse.response_failed(
                 message="Error occurred on server while signing out the user. Please try again in sometime!",
+                status=500,
+            )
+
+
+class CheckUsernameAvailability(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        username = request.GET.get("username")
+        print("Username -> ", username)
+        if not username:
+            return ApiResponse.response_failed(
+                message="Please provide the username", status=404
+            )
+
+        if username.lower() == request.user.username.lower():
+            return ApiResponse.response_succeed(
+                message="Username is available", status=200
+            )
+
+        try:
+            is_unique = not User.objects.filter(username=username.lower()).exists()
+            if not is_unique:
+                return ApiResponse.response_failed(
+                    message="Username is already taken", status=404
+                )
+
+            return ApiResponse.response_succeed(
+                message="Username is available", status=200
+            )
+        except Exception as error:
+            print("Error occurred while validating the username -> ", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on server while validating the username. Please try again in some time or contact at support@portify.com",
                 status=500,
             )
