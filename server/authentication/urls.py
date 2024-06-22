@@ -5,6 +5,9 @@ from .views import (
     UserEmailVerification,
     ResetPassword,
     ForgotPassword,
+    UserIdentity,
+    UserSignout,
+    UserToken,
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -24,4 +27,7 @@ urlpatterns = [
     path("forgot-password/", ForgotPassword.as_view(), name="forgot_password"),
     path("verify-user/", ForgotPassword.as_view(), name="verify_user"),
     path("change-password/", ForgotPassword.as_view(), name="change_password"),
+    path("user/", UserIdentity.as_view(), name="user_identity"),
+    path("signout/", UserSignout.as_view(), name="signout"),
+    path("get-user-token/", UserToken.as_view(), name="user_token"),
 ]
