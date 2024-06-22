@@ -1,4 +1,3 @@
-from django.utils import timezone
 from datetime import timedelta
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
