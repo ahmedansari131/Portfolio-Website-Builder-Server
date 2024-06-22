@@ -14,7 +14,7 @@ from .serializers import (
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
-from .utils import get_existing_user
+from .utils import get_existing_user, verify_simple_jwt
 from .jwt_token import Token, CustomRefreshToken
 import os
 from .serializers import MyTokenObtainPairSerializer
@@ -163,11 +163,11 @@ class UserLogin(APIView):
 
         if serializer.is_valid(raise_exception=True):
             user = serializer.validated_data.get("user")
-
             if not user:
                 return ApiResponse.response_failed(
-                    message=serializer.validated_data.get("error"), status=403
+                    message=serializer.validated_data.get("message"), status=403
                 )
+
             email = user.email
             password = serializer.validated_data.get("password")
 
@@ -177,9 +177,11 @@ class UserLogin(APIView):
                     "password": password,
                 }
             )
+
             if token_serializer.is_valid(raise_exception=True):
                 tokens = token_serializer.validated_data
                 response = JsonResponse({"status": 200})
+
                 access_token_lifetime = timedelta(
                     minutes=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
                     / 60
@@ -187,16 +189,24 @@ class UserLogin(APIView):
                 refresh_token_lifetime = timedelta(
                     days=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].days
                 )
+
                 response.set_cookie(
                     "access",
                     tokens.get("access"),
-                    expires=timezone.now() + access_token_lifetime,
+                    max_age=access_token_lifetime,
+                    path="/",
+                    httponly=False,
+                    samesite="None",
                     secure=True,
                 )
+
                 response.set_cookie(
                     "refresh",
                     tokens.get("refresh"),
-                    expires=timezone.now() + refresh_token_lifetime,
+                    max_age=refresh_token_lifetime,
+                    path="/",
+                    httponly=False,
+                    samesite="None",
                     secure=True,
                 )
                 return response
@@ -366,3 +376,78 @@ class ForgotPassword(APIView):
         return ApiResponse.response_failed(
             message="Error occurred on server while changing the password", status=500
         )
+
+
+class UserIdentity(APIView):
+
+    def get(self, request):
+        cookie = request.COOKIES
+        if not cookie:
+            return ApiResponse.response_failed(
+                message="Please login to proceed further", status=403
+            )
+        try:
+            verified_token = verify_simple_jwt(cookie.get("access"))
+        except Exception as error:
+            return ApiResponse.response_failed(
+                message=str(error),
+                status=403,
+            )
+
+        user = get_existing_user(user_id=verified_token.get("user_id"))
+        if isinstance(user, User):
+            user = {
+                "username": user.username,
+                "email": user.email,
+                "user_id": user.id,
+                "profile_img": user.profile_image.url,
+            }
+            return ApiResponse.response_succeed(
+                data=user,
+                status=200,
+            )
+        else:
+            return ApiResponse.response_failed(
+                message=user or "User does not exist", status=404
+            )
+
+
+class UserToken(APIView):
+    def get(self, request):
+        cookie = request.COOKIES
+        return JsonResponse({"token": cookie.get("access")})
+
+
+class UserSignout(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            response = JsonResponse({"message": "Signed out successfully."})
+            response.set_cookie(
+                "access",
+                "",
+                max_age=0,
+                path="/",
+                httponly=False,
+                samesite="None",
+                secure=True,
+            )
+
+            response.set_cookie(
+                "refresh",
+                "",
+                max_age=0,
+                path="/",
+                httponly=False,
+                samesite="None",
+                secure=True,
+            )
+
+            return response
+        except Exception as error:
+            print("Error occurred while signing out the user -> ", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on server while signing out the user. Please try again in sometime!",
+                status=500,
+            )
