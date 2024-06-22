@@ -303,6 +303,10 @@ class ForgotPassword(APIView):
 
         if serializer.is_valid(raise_exception=True):
             user = serializer.validated_data.get("user")
+            if not user:
+                return ApiResponse.response_failed(
+                    message=serializer.validated_data.get("message"), status=403
+                )
 
             for_login_token = Token(user_id=user.id, token_type=DIRECT_LOGIN)
             generated_login_token = for_login_token.generate_token()
@@ -311,12 +315,9 @@ class ForgotPassword(APIView):
                 user_id=user.id, token_type=CHANGE_FORGOT_PASSWORD
             )
             generated_change_password_token = for_change_password_token.generate_token()
-
+            verification_link = f'{os.environ.get("CLIENT_PATH_PREFIX")}/verify-user/?token={generated_change_password_token}'
             login_url = request.build_absolute_uri(
-                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_login_token}'
-            )
-            change_password_url = request.build_absolute_uri(
-                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user?token={generated_change_password_token}'
+                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user/?token={generated_login_token}'
             )
 
             forgot_password_email = BaseEmail(
@@ -326,7 +327,7 @@ class ForgotPassword(APIView):
                 content={
                     "username": user.username,
                     "login_url": login_url,
-                    "reset_password_url": change_password_url,
+                    "reset_password_url": verification_link,
                 },
                 subject="Forgot Password",
                 template_path="email_templates/forgot_password_email.html",
@@ -355,6 +356,11 @@ class ForgotPassword(APIView):
         )
         if serializer.is_valid(raise_exception=True):
             new_password = serializer.validated_data.get("new_password")
+            if not new_password:
+                return ApiResponse.response_failed(
+                    message=serializer.validated_data.get("message"), status=403
+                )
+
             try:
                 user = get_existing_user(user_id=user_id)
                 if isinstance(user, User):
