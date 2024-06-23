@@ -1,5 +1,9 @@
 from django.db import models
-from django.contrib.auth.models import BaseUserManager, AbstractBaseUser, PermissionsMixin
+from django.contrib.auth.models import (
+    BaseUserManager,
+    AbstractBaseUser,
+    PermissionsMixin,
+)
 from cloudinary.models import CloudinaryField
 
 
@@ -25,7 +29,7 @@ class UserManager(BaseUserManager):
         )
         user.is_admin = True
         user.is_active = True
-        user.is_superuser = True 
+        user.is_superuser = True
         user.save(using=self._db)
         return user
 
@@ -39,7 +43,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     username = models.CharField(max_length=50)
     is_active = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
-    profile_image = CloudinaryField("Profile image", default="", folder="portfolio_website_builder/profile_image/")
+    profile_image = CloudinaryField(
+        "Profile image", default="", folder="portfolio_website_builder/profile_image/"
+    )
     refresh_token = models.TextField(null=True)
     is_terms_agree = models.BooleanField(default=False, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -68,3 +74,13 @@ class User(AbstractBaseUser, PermissionsMixin):
         "Is the user a member of staff?"
         # Simplest possible answer: All admins are staff
         return self.is_admin
+
+
+class PasswordReset(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    token = models.CharField(max_length=64, unique=True)
+    ip_address = models.GenericIPAddressField()
+    user_agent = models.CharField(max_length=256)
+    created_at = models.DateTimeField(auto_now_add=True)
+    otp = models.CharField(max_length=6)
+    attempts = models.IntegerField(default=0)
