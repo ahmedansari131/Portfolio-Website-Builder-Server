@@ -2,24 +2,27 @@ from datetime import timedelta
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
-from .models import User
+from .models import User, PasswordReset
 from .serializers import (
-    ChangeForgotPasswordSerializer,
     UserSerializer,
     LoginSerializer,
     ResetPasswordSerializer,
-    ForgotPasswordSerializer,
+    ForgotPasswordRequestSerializer,
+    ForgotPasswordConfirmationSerializer,
 )
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
-from .utils import get_existing_user, verify_simple_jwt
+from .utils import get_existing_user, verify_simple_jwt, generate_otp, set_cookie_helper
 from .jwt_token import Token, CustomRefreshToken
 import os
 from .serializers import MyTokenObtainPairSerializer
 from server.email import BaseEmail
 from .constants import DIRECT_LOGIN, CHANGE_FORGOT_PASSWORD
 from django.http import JsonResponse
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
 
 
 class UserRegistration(APIView):
@@ -188,26 +191,27 @@ class UserLogin(APIView):
                 refresh_token_lifetime = timedelta(
                     days=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].days
                 )
+                cookies = [
+                    {
+                        "key": "access",
+                        "value": tokens.get("access"),
+                        "life": access_token_lifetime,
+                    },
+                    {
+                        "key": "refresh",
+                        "value": tokens.get("refresh"),
+                        "life": refresh_token_lifetime,
+                    },
+                ]
+                response = JsonResponse({"status": 200})
+                for cookie in cookies:
+                    response = set_cookie_helper(
+                        key=cookie["key"],
+                        value=cookie["value"],
+                        life=cookie["life"],
+                        response=response,
+                    )
 
-                response.set_cookie(
-                    "access",
-                    tokens.get("access"),
-                    max_age=access_token_lifetime,
-                    path="/",
-                    httponly=False,
-                    samesite="None",
-                    secure=True,
-                )
-
-                response.set_cookie(
-                    "refresh",
-                    tokens.get("refresh"),
-                    max_age=refresh_token_lifetime,
-                    path="/",
-                    httponly=False,
-                    samesite="None",
-                    secure=True,
-                )
                 return response
         return ApiResponse.response_failed(
             message="Error occurred on server while login", status=500
@@ -256,7 +260,7 @@ class ResetPassword(APIView):
         return ApiResponse.response_succeed(message="Successful", status=200)
 
 
-class ForgotPassword(APIView):
+class ForgotPasswordRequest(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -299,7 +303,7 @@ class ForgotPassword(APIView):
 
     def post(self, request):
         data = request.data
-        serializer = ForgotPasswordSerializer(data=data)
+        serializer = ForgotPasswordRequestSerializer(data=data)
 
         if serializer.is_valid(raise_exception=True):
             user = serializer.validated_data.get("user")
@@ -308,78 +312,85 @@ class ForgotPassword(APIView):
                     message=serializer.validated_data.get("message"), status=403
                 )
 
-            for_login_token = Token(user_id=user.id, token_type=DIRECT_LOGIN)
-            generated_login_token = for_login_token.generate_token()
+            otp = generate_otp()
+            token = default_token_generator.make_token(user)
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            reset_link = f'{request.scheme}://{os.environ.get("CLIENT_PATH_PREFIX")}/reset-password/{uid}/{token}/'
+            direct_login_link = ""
 
-            for_change_password_token = Token(
-                user_id=user.id, token_type=CHANGE_FORGOT_PASSWORD
-            )
-            generated_change_password_token = for_change_password_token.generate_token()
-            verification_link = f'{os.environ.get("CLIENT_PATH_PREFIX")}/verify-user/?token={generated_change_password_token}'
-            login_url = request.build_absolute_uri(
-                f'/{os.environ.get("API_PATH_PREFIX")}/verify-user/?token={generated_login_token}'
-            )
+            try:
+                PasswordReset.objects.create(
+                    user=user,
+                    token=token,
+                    ip_address=request.ip_address,
+                    user_agent=request.user_agent,
+                    otp=otp,
+                )
+            except Exception as error:
+                print("Error occurred while creating password reset object -> ", error)
+                return ApiResponse.response_failed(
+                    message="Error occurred on server. Please try again in some time",
+                    status=500,
+                )
 
-            forgot_password_email = BaseEmail(
+            reset_password_request_email = BaseEmail(
                 sender=os.environ.get("NO_REPLY_EMAIL"),
                 recipient=user.email,
                 message="Forgot Password",
                 content={
                     "username": user.username,
-                    "login_url": login_url,
-                    "reset_password_url": verification_link,
+                    "login_link": direct_login_link,
+                    "reset_password_link": reset_link,
                 },
                 subject="Forgot Password",
                 template_path="email_templates/forgot_password_email.html",
             )
-            email_sent = forgot_password_email.send_email()
-
+            reset_password_request_email.send_email()
             return ApiResponse.response_succeed(
-                message=f"Email is sent on your {user.email}", status=200
+                message=f"Email is sent to your {user.email} address", status=200
             )
+
         return ApiResponse.response_failed(
-            message="Error occurred on server", status=500
+            message="Error occurred on server. Please try again or contact our support team at support@portify.com",
+            status=500,
         )
 
-    def patch(self, request):
+
+class ForgotPasswordConfirmation(APIView):
+    def post(self, request, uid, token):
         data = request.data
 
-        tokenization = Token(token_type=CHANGE_FORGOT_PASSWORD)
-        verified_token = tokenization.verify_token(token=data.get("token"))
-        if isinstance(verified_token, str):
-            return ApiResponse.response_failed(message=verified_token, status=403)
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = get_existing_user(user_id=user_id)
+        except Exception as error:
+            print("Error occurred while getting the user -> ", error)
+            return ApiResponse.response_failed(message="Invalid token!", status=400)
 
-        user_id = verified_token.get("id")
-
-        serializer = ChangeForgotPasswordSerializer(
-            data=data, context={"user_id": user_id}
+        serializer = ForgotPasswordConfirmationSerializer(
+            data=data, context={"user": user, "token": token, "request": request}
         )
         if serializer.is_valid(raise_exception=True):
-            new_password = serializer.validated_data.get("new_password")
-            if not new_password:
+            is_valid_otp = serializer.validated_data.get("otp")
+            is_valid_password = serializer.validated_data.get("new_password")
+            if not is_valid_password:
                 return ApiResponse.response_failed(
-                    message=serializer.validated_data.get("message"), status=403
+                    message=serializer.validated_data.get("message"), status=400
                 )
 
-            try:
-                user = get_existing_user(user_id=user_id)
-                if isinstance(user, User):
-                    user.set_password(new_password)
-                    user.save()
-                    return ApiResponse.response_succeed(
-                        message="Password changed successfully", status=201
-                    )
-                else:
-                    return ApiResponse.response_failed(message=user, status=404)
-            except Exception as error:
-                print("Error occurred while changing the password -> ", error)
+            if not is_valid_otp:
                 return ApiResponse.response_failed(
-                    message="Error occurred on server while changing the password",
-                    status=500,
+                    message=serializer.validated_data.get("message"), status=400
                 )
 
+            if is_valid_password:
+                user.set_password(is_valid_password)
+                user.save()
+                return ApiResponse.response_succeed(
+                    message="Password reset successfully", status=200
+                )
         return ApiResponse.response_failed(
-            message="Error occurred on server while changing the password", status=500
+            message="Error occurred on the server", status=500
         )
 
 
