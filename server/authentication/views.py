@@ -23,6 +23,8 @@ from django.http import JsonResponse
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+from rest_framework_simplejwt.tokens import UntypedToken
 
 
 class UserRegistration(APIView):
@@ -315,8 +317,12 @@ class ForgotPasswordRequest(APIView):
             otp = generate_otp()
             token = default_token_generator.make_token(user)
             uid = urlsafe_base64_encode(force_bytes(user.pk))
+
+            refresh = RefreshToken.for_user(user)
+            signin_token = str(refresh.access_token)
+
             reset_link = f'{request.scheme}://{os.environ.get("CLIENT_PATH_PREFIX")}/reset-password/{uid}/{token}/'
-            direct_login_link = ""
+            direct_signin_link = f'{request.scheme}://{os.environ.get("CLIENT_PATH_PREFIX")}/direct-signin/{uid}/{signin_token}/'
 
             try:
                 PasswordReset.objects.create(
@@ -339,7 +345,7 @@ class ForgotPasswordRequest(APIView):
                 message="Forgot Password",
                 content={
                     "username": user.username,
-                    "login_link": direct_login_link,
+                    "signin_link": direct_signin_link,
                     "reset_password_link": reset_link,
                 },
                 subject="Forgot Password",
@@ -392,6 +398,61 @@ class ForgotPasswordConfirmation(APIView):
         return ApiResponse.response_failed(
             message="Error occurred on the server", status=500
         )
+
+
+class DirectSignin(APIView):
+    def post(self, request, uid, signin_token):
+        try:
+            uid = force_str(urlsafe_base64_decode(uid))
+            user = get_existing_user(user_id=uid)
+        except Exception as error:
+            print("Error occurred -> ", error)
+            return ApiResponse.response_failed(message="Invalid token!", status=400)
+
+        try:
+            access_token = AccessToken(signin_token)
+            if access_token.get("user_id") != user.id:
+                return ApiResponse.response_failed(message="Invalid token!", status=400)
+        except Exception as error:
+            print("Error occurred while verifying the signin token -> ", error)
+            return ApiResponse.response_failed(message="Invalid token!", status=400)
+
+        refresh = RefreshToken.for_user(user)
+        access_token = refresh.access_token
+        refresh["username"] = user.username
+        refresh["email"] = user.email
+        access_token.payload["username"] = user.username
+        access_token.payload["email"] = user.email
+        response = JsonResponse({"status": 200})
+
+        access_token_lifetime = timedelta(
+            minutes=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds() / 60
+        )
+        refresh_token_lifetime = timedelta(
+            days=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].days
+        )
+        cookies = [
+            {
+                "key": "access",
+                "value": access_token,
+                "life": access_token_lifetime,
+            },
+            {
+                "key": "refresh",
+                "value": refresh,
+                "life": refresh_token_lifetime,
+            },
+        ]
+
+        response = JsonResponse({"status": 200})
+        for cookie in cookies:
+            response = set_cookie_helper(
+                key=cookie["key"],
+                value=cookie["value"],
+                life=cookie["life"],
+                response=response,
+            )
+        return response
 
 
 class UserProfile(APIView):
