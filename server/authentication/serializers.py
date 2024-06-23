@@ -1,9 +1,10 @@
 from rest_framework import serializers
-from .models import User
+from .models import User, PasswordReset
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db.models import Q
 from server.utils.response import BaseResponse
 from .utils import get_existing_user
+from datetime import datetime, timedelta, timezone
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -139,7 +140,7 @@ class ResetPasswordSerializer(serializers.ModelSerializer):
         return data
 
 
-class ForgotPasswordSerializer(serializers.ModelSerializer):
+class ForgotPasswordRequestSerializer(serializers.ModelSerializer):
     identifier = serializers.CharField(max_length=100)
 
     class Meta:
@@ -160,26 +161,60 @@ class ForgotPasswordSerializer(serializers.ModelSerializer):
         return data
 
 
-class ChangeForgotPasswordSerializer(serializers.ModelSerializer):
-    new_password = serializers.CharField(max_length=100, write_only=True)
+class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
+    otp = serializers.CharField(required=True, max_length=6, write_only=True)
+    new_password = serializers.CharField(write_only=True, required=True)
 
     class Meta:
-        model = User
-        fields = ["new_password"]
+        model = PasswordReset
+        fields = ["otp", "new_password"]
 
     def validate(self, data):
+        otp = data.get("otp")
         new_password = data.get("new_password")
-        user_id = self.context.get("user_id")
+        user = self.context.get("user")
+        token = self.context.get("token")
+        request = self.context.get("request")
+
+        if not otp:
+            return {"message": "OTP is required"}
+
+        if not new_password:
+            return {"message": "Password is required"}
+
+        if len(new_password) < 8:
+            return {"message": "Password must be of 8 characters long"}
+
         try:
-            user = get_existing_user(user_id=user_id)
-
-            if not isinstance(user, User):
-                raise serializers.ValidationError(user)
-
-            if user.check_password(new_password):
-                return {
-                    "message": "New password must be different from previous password"
-                }
-            return data
+            reset_record = PasswordReset.objects.get(user=user, token=token)
         except Exception as error:
-            raise serializers.ValidationError(error)
+            print(
+                "Error occurred in serializer while getting the reset records -> ",
+                error,
+            )
+            return {"message": "Invalid token!"}
+
+        if reset_record.otp != otp:
+            reset_record.attempts += 1
+            reset_record.save()
+            if reset_record.attempts >= 3:
+                # lock_account(user)
+                return {
+                    "message": "Account has been locked for multiple invalid request"
+                }
+            return {
+                "message": f"Invalid OTP. You have left {3 - reset_record.attempts} attempts. Account will be locked for sometime if the limit exceeds"
+            }
+
+        if (
+            reset_record.ip_address != request.ip_address
+            or reset_record.user_agent != request.user_agent
+        ):
+            return {"message": "Invalid request!"}
+
+        if reset_record.created_at < datetime.now(timezone.utc) - timedelta(minutes=15):
+            return {"message": "Token expired! Please try again"}
+
+        if reset_record.otp == otp:
+            reset_record.delete()
+        return data
