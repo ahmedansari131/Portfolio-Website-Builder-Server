@@ -321,7 +321,7 @@ class ForgotPasswordRequest(APIView):
             refresh = RefreshToken.for_user(user)
             signin_token = str(refresh.access_token)
 
-            reset_link = f'{request.scheme}://{os.environ.get("CLIENT_PATH_PREFIX")}/reset-password/{uid}/{token}/'
+            reset_forgot_password_link = f'{request.scheme}://{os.environ.get("CLIENT_PATH_PREFIX")}/reset-forgot-password/{uid}/{token}/'
             direct_signin_link = f'{request.scheme}://{os.environ.get("CLIENT_PATH_PREFIX")}/direct-signin/{uid}/{signin_token}/'
 
             try:
@@ -346,7 +346,8 @@ class ForgotPasswordRequest(APIView):
                 content={
                     "username": user.username,
                     "signin_link": direct_signin_link,
-                    "reset_password_link": reset_link,
+                    "reset_password_link": reset_forgot_password_link,
+                    "otp": otp
                 },
                 subject="Forgot Password",
                 template_path="email_templates/forgot_password_email.html",
