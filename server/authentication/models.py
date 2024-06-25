@@ -79,6 +79,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 class PasswordReset(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     token = models.CharField(max_length=64, unique=True)
+    signin_token = models.CharField(max_length=256, unique=True)
     ip_address = models.GenericIPAddressField()
     user_agent = models.CharField(max_length=256)
     created_at = models.DateTimeField(auto_now_add=True)
