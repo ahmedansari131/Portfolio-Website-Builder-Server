@@ -162,8 +162,8 @@ class ForgotPasswordRequestSerializer(serializers.ModelSerializer):
 
 
 class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
-    otp = serializers.CharField(required=True, max_length=6, write_only=True)
-    new_password = serializers.CharField(write_only=True, required=True)
+    otp = serializers.CharField(max_length=6, write_only=True)
+    new_password = serializers.CharField(write_only=True)
 
     class Meta:
         model = PasswordReset
@@ -176,14 +176,10 @@ class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
         token = self.context.get("token")
         request = self.context.get("request")
 
-        if not otp:
-            return {"message": "OTP is required"}
-
-        if not new_password:
-            return {"message": "Password is required"}
-
         if len(new_password) < 8:
-            return {"message": "Password must be of 8 characters long"}
+            return {
+                "message": {"new_password": "Password must be of 8 characters long"}
+            }
 
         try:
             reset_record = PasswordReset.objects.get(user=user, token=token)
@@ -203,7 +199,9 @@ class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
                     "message": "Account has been locked for multiple invalid request"
                 }
             return {
-                "message": f"Invalid OTP. You have left {3 - reset_record.attempts} attempts. Account will be locked for sometime if the limit exceeds"
+                "message": {
+                    "otp": f"Invalid OTP. You have left {3 - reset_record.attempts} attempts. Account will be locked for sometime if the limit exceeds"
+                }
             }
 
         if (
