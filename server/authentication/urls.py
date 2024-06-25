@@ -11,6 +11,7 @@ from .views import (
     CheckUsernameAvailability,
     ForgotPasswordConfirmation,
     DirectSignin,
+    VerifyValidForgotPasswordRequest,
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -33,7 +34,16 @@ urlpatterns = [
         ForgotPasswordConfirmation.as_view(),
         name="forgot_password_confirmation",
     ),
-    path("direct-signin/<uid>/<signin_token>/", DirectSignin.as_view(), name="direct_signin"),
+    path(
+        "verify-valid-forgot-password-request/<uid>/<token>/",
+        VerifyValidForgotPasswordRequest.as_view(),
+        name="verify_valid_forgot_password_request",
+    ),
+    path(
+        "direct-signin/<uid>/<signin_token>/",
+        DirectSignin.as_view(),
+        name="direct_signin",
+    ),
     path("change-password/", ForgotPasswordRequest.as_view(), name="change_password"),
     path("user/", UserProfile.as_view(), name="user_identity"),
     path("signout/", UserSignout.as_view(), name="signout"),
