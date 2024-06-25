@@ -328,6 +328,7 @@ class ForgotPasswordRequest(APIView):
                 PasswordReset.objects.create(
                     user=user,
                     token=token,
+                    signin_token=signin_token,
                     ip_address=request.ip_address,
                     user_agent=request.user_agent,
                     otp=otp,
@@ -371,8 +372,7 @@ class ForgotPasswordConfirmation(APIView):
             user_id = force_str(urlsafe_base64_decode(uid))
             user = get_existing_user(user_id=user_id)
         except Exception as error:
-            print("Error occurred while getting the user -> ", error)
-            return ApiResponse.response_failed(message="Invalid token!", status=400)
+            return ApiResponse.response_failed(message="Invalid request", status=400)
 
         serializer = ForgotPasswordConfirmationSerializer(
             data=data, context={"user": user, "token": token, "request": request}
@@ -401,6 +401,22 @@ class ForgotPasswordConfirmation(APIView):
         )
 
 
+class VerifyValidForgotPasswordRequest(APIView):
+    def post(self, request, uid, token):
+        try:
+            token = PasswordReset.objects.get(token=token)
+            if token:
+                return ApiResponse.response_succeed(message="Valid request", status=200)
+
+        except PasswordReset.DoesNotExist:
+            return ApiResponse.response_failed(message="Invalid Request!", status=400)
+        except Exception as error:
+            return ApiResponse.response_failed(message="Invalid request!", status=400)
+        return ApiResponse.response_failed(
+            message="Error occurred on server", status=500
+        )
+
+
 class DirectSignin(APIView):
     def post(self, request, uid, signin_token):
         try:
@@ -409,7 +425,7 @@ class DirectSignin(APIView):
         except Exception as error:
             print("Error occurred -> ", error)
             return ApiResponse.response_failed(message="Invalid token!", status=400)
-
+        # Check for token if it is in the db or not && And also delete the token from the db after hitting this view
         try:
             access_token = AccessToken(signin_token)
             if access_token.get("user_id") != user.id:
