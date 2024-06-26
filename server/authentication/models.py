@@ -85,3 +85,4 @@ class PasswordReset(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     otp = models.CharField(max_length=6)
     attempts = models.IntegerField(default=0)
+    is_used = models.BooleanField(default=False)
