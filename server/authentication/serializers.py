@@ -181,38 +181,7 @@ class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
                 "message": {"new_password": "Password must be of 8 characters long"}
             }
 
-        try:
-            reset_record = PasswordReset.objects.get(user=user, token=token)
-        except Exception as error:
-            print(
-                "Error occurred in serializer while getting the reset records -> ",
-                error,
-            )
-            return {"message": "Invalid token!"}
+        if len(otp) < 6:
+            return {"message": {"otp": "OTP must be of 6 digits"}}
 
-        if reset_record.otp != otp:
-            reset_record.attempts += 1
-            reset_record.save()
-            if reset_record.attempts >= 3:
-                # lock_account(user)
-                return {
-                    "message": "Account has been locked for multiple invalid request"
-                }
-            return {
-                "message": {
-                    "otp": f"Invalid OTP. You have left {3 - reset_record.attempts} attempts. Account will be locked for sometime if the limit exceeds"
-                }
-            }
-
-        if (
-            reset_record.ip_address != request.ip_address
-            or reset_record.user_agent != request.user_agent
-        ):
-            return {"message": "Invalid request!"}
-
-        if reset_record.created_at < datetime.now(timezone.utc) - timedelta(minutes=15):
-            return {"message": "Token expired! Please try again"}
-
-        if reset_record.otp == otp:
-            reset_record.delete()
         return data
