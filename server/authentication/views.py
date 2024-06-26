@@ -25,6 +25,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.tokens import UntypedToken
+from datetime import datetime, timedelta, timezone
 
 
 class UserRegistration(APIView):
@@ -348,7 +349,7 @@ class ForgotPasswordRequest(APIView):
                     "username": user.username,
                     "signin_link": direct_signin_link,
                     "reset_password_link": reset_forgot_password_link,
-                    "otp": otp
+                    "otp": otp,
                 },
                 subject="Forgot Password",
                 template_path="email_templates/forgot_password_email.html",
@@ -378,24 +379,63 @@ class ForgotPasswordConfirmation(APIView):
             data=data, context={"user": user, "token": token, "request": request}
         )
         if serializer.is_valid(raise_exception=True):
-            is_valid_otp = serializer.validated_data.get("otp")
-            is_valid_password = serializer.validated_data.get("new_password")
-            if not is_valid_password:
+            valid_otp = serializer.validated_data.get("otp")
+            valid_password = serializer.validated_data.get("new_password")
+
+            if not valid_password or not valid_otp:
                 return ApiResponse.response_failed(
                     message=serializer.validated_data.get("message"), status=400
                 )
 
-            if not is_valid_otp:
+            try:
+                reset_record = PasswordReset.objects.filter(
+                    user=user, token=token
+                ).first()
+            except Exception as error:
+                print(
+                    "Error occurred in serializer while getting the reset records -> ",
+                    error,
+                )
                 return ApiResponse.response_failed(
-                    message=serializer.validated_data.get("message"), status=400
+                    message="Invalid request!", status=400
                 )
 
-            if is_valid_password:
-                user.set_password(is_valid_password)
-                user.save()
-                return ApiResponse.response_succeed(
-                    message="Password reset successfully", status=200
+            if (
+                reset_record.ip_address != request.ip_address
+                or reset_record.user_agent != request.user_agent
+            ):
+                return ApiResponse.response_failed(
+                    message="Invalid request!", status=400
                 )
+
+            if reset_record.created_at < datetime.now(timezone.utc) - timedelta(
+                minutes=15
+            ):
+                return ApiResponse.response_failed(
+                    message="Token expired! Please try again", status=403
+                )
+
+            if reset_record.otp != valid_otp:
+                reset_record.attempts += 1
+                reset_record.save()
+                if reset_record.attempts >= 3:
+                    # lock_account(user)
+                    return ApiResponse.response_failed(
+                        message="Account has been locked for multiple invalid request",
+                        status=400,
+                    )
+                return ApiResponse.response_failed(
+                    message={
+                        "otp": f"Invalid OTP. You have left {3 - reset_record.attempts} attempts. Account will be locked for sometime if the limit exceeds"
+                    },
+                    status=401,
+                )
+
+            user.set_password(valid_password)
+            user.save()
+            return ApiResponse.response_succeed(
+                message="Password reset successfully", status=200
+            )
         return ApiResponse.response_failed(
             message="Error occurred on the server", status=500
         )
