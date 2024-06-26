@@ -431,8 +431,10 @@ class ForgotPasswordConfirmation(APIView):
                     status=401,
                 )
 
+            reset_record.is_used = True
             user.set_password(valid_password)
             user.save()
+            reset_record.save()
             return ApiResponse.response_succeed(
                 message="Password reset successfully", status=200
             )
@@ -442,18 +444,20 @@ class ForgotPasswordConfirmation(APIView):
 
 
 class VerifyValidForgotPasswordRequest(APIView):
-    def post(self, request, uid, token):
+    def post(self, token):
         try:
             token = PasswordReset.objects.get(token=token)
-            if token:
-                return ApiResponse.response_succeed(message="Valid request", status=200)
-
+            if token and not token.is_used:
+                return ApiResponse.response_succeed(
+                    message="Valid request!", status=200
+                )
         except PasswordReset.DoesNotExist:
             return ApiResponse.response_failed(message="Invalid Request!", status=400)
         except Exception as error:
             return ApiResponse.response_failed(message="Invalid request!", status=400)
         return ApiResponse.response_failed(
-            message="Error occurred on server", status=500
+            message="Your request for forgot password is expired! Please request again",
+            status=500,
         )
 
 
