@@ -126,16 +126,20 @@ class ResetPasswordSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         password = data.get("password")
+        new_password = data.get("new_password")
         request = self.context.get("request")
+
+        if len(new_password) < 8:
+            return {"message": {"new_password": "Password must be of atleast 8 characters"}}
 
         try:
             user = User.objects.get(id=request.user.id)
             if user and not user.check_password(password):
-                raise serializers.ValidationError("Incorrect password")
+                return {"message": {"old_password": "Incorrect Password"}}
         except User.DoesNotExist:
-            raise serializers.ValidationError("User does not exist")
+            return {"message": "User does not exist"}
         except Exception as error:
-            raise serializers.ValidationError(error)
+            return {"message": "Error occured on server"}
 
         return data
 
