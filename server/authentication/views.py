@@ -232,6 +232,13 @@ class ResetPassword(APIView):
 
         if serializer.is_valid(raise_exception=True):
             try:
+                validated_data = serializer.validated_data
+
+                if "message" in validated_data:
+                    return ApiResponse.response_failed(
+                        message=validated_data.get("message"), status=400
+                    )
+
                 user = User.objects.get(id=user_id)
                 user.set_password(serializer.validated_data.get("new_password"))
                 user.save()
