@@ -3,8 +3,6 @@ from .models import User, PasswordReset
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db.models import Q
 from server.utils.response import BaseResponse
-from .utils import get_existing_user
-from datetime import datetime, timedelta, timezone
 
 
 class UserSerializer(serializers.ModelSerializer):
