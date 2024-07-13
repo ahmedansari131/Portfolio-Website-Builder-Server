@@ -1,16 +1,18 @@
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from server.response.api_response import ApiResponse
 from rest_framework.views import APIView
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from bs4 import BeautifulSoup
 from server.utils.s3 import s3_config
 import json
-from .serializers import CreateProjectSerializer
+from .serializers import CreateProjectSerializer, ListTemplatesSerializer
 from .models import PortfolioProject, CustomizedTemplate, Template
 from django.shortcuts import get_object_or_404
 from server.utils.response import BaseResponse
 from django.db import transaction
-
+import os
+from django.conf import settings
+import mimetypes
 
 
 class Project(APIView):
@@ -158,3 +160,75 @@ class Project(APIView):
         return ApiResponse.response_failed(
             message="Error occurred on server", status=500
         )
+
+
+class UploadTemplate(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, template_name):
+        if template_name:
+            local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
+            s3_client = s3_config()
+            bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
+            region_name = settings.AWS_S3_REGION_NAME
+
+            s3_folder_key = f"{template_name}/"
+
+            try:
+                s3_client.put_object(Bucket=bucket_name, Key=s3_folder_key)
+
+                for root, _, files in os.walk(local_folder_path):
+                    for file_name in files:
+                        local_file_path = os.path.join(root, file_name)
+                        s3_key = s3_folder_key + os.path.relpath(
+                            local_file_path, local_folder_path
+                        )
+                        s3_key = s3_key.replace(
+                            "\\", "/"
+                        )  # Ensure forward slashes in S3 key
+
+                        content_type, _ = mimetypes.guess_type(local_file_path)
+                        if not content_type:
+                            content_type = "application/octet-stream"
+
+                        with open(local_file_path, "rb") as file_data:
+                            s3_client.upload_fileobj(
+                                file_data,
+                                bucket_name,
+                                s3_key,
+                                ExtraArgs={"ContentType": content_type},
+                            )
+                template_url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_folder_key}index.html"
+                preview_url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_folder_key}assests/preview.png"
+
+                Template.objects.create(
+                    template_name=template_name,
+                    template_url=template_url,
+                    template_preview=preview_url,
+                    created_by=request.user,
+                )
+
+                return ApiResponse.response_succeed(
+                    message="Template uploaded successfully",
+                    status=201,
+                )
+            except Exception as error:
+                return ApiResponse.response_failed(message=str(error), status=400)
+        return ApiResponse.response_failed(
+            message="Error occurred on server while uploading template", status=500
+        )
+
+
+class ListTemplates(APIView):
+    def get(self, request):
+
+        try:
+            templates = Template.objects.all()
+            serializer = ListTemplatesSerializer(templates, many=True)
+            return ApiResponse.response_succeed(data=serializer.data, status=200)
+        except Exception as error:
+            print("Error occur while getting the template", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on the server! Please try again or contact at support@portfiy.com",
+                status=500,
+            )
