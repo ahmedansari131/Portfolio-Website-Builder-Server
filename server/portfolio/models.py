@@ -1,15 +1,16 @@
 from django.db import models
 from django.conf import settings
-from django.utils import timezone
+
 
 User = settings.AUTH_USER_MODEL
 
 
 class Template(models.Model):
-    template_name = models.CharField(max_length=50)
-    template_url = models.URLField()
+    template_name = models.CharField(max_length=50, unique=True)
+    template_preview = models.URLField(blank=True, null=True)
+    template_url = models.URLField(blank=True, null=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"Template: { self.id}"
@@ -28,7 +29,9 @@ class PortfolioProject(models.Model):
 
 class CustomizedTemplate(models.Model):
     template = models.ForeignKey(Template, on_delete=models.CASCADE)
-    portfolio_project = models.OneToOneField(PortfolioProject, on_delete=models.CASCADE, default="")
+    portfolio_project = models.OneToOneField(
+        PortfolioProject, on_delete=models.CASCADE, default=""
+    )
     title = models.CharField(max_length=50, default="Portfolio")
     meta = models.JSONField(default=dict)
     links = models.JSONField(default=dict)
