@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import PortfolioProject
+from .models import PortfolioProject, Template
+from authentication.serializers import UserSerializer
 
 
 class CreateProjectSerializer(serializers.ModelSerializer):
@@ -12,3 +13,11 @@ class CreateProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = PortfolioProject
         fields = ["project_name", "template_id", "s3_file_name", "s3_folder_name", "bucket_name"]
+
+
+class ListTemplatesSerializer(serializers.ModelSerializer):
+    created_by = UserSerializer()
+    
+    class Meta:
+        model = Template
+        fields = "__all__"
