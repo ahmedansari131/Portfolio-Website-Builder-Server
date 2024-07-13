@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "portfolio",
     "rest_framework",
     "corsheaders",
+    "storages",
 ]
 
 MIDDLEWARE = [
@@ -40,7 +41,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "authentication.middleware.CookieMiddleware",
-    'authentication.middleware.LogIPAddressAndUserAgentMiddleware',
+    "authentication.middleware.LogIPAddressAndUserAgentMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -151,6 +152,16 @@ cloudinary.config(
     api_key=os.environ.get("CLOUDINARY_API_KEY"),
     api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
 )
+
+
+AWS_ACCESS_KEY_ID = os.environ.get("S3_SECRET_ACCESS_KEY")
+AWS_SECRET_ACCESS_KEY = os.environ.get("S3_KEY_ID")
+AWS_STORAGE_TEMPLATE_BUCKET_NAME = os.environ.get("S3_TEMPLATE_BUCKET_NAME")
+AWS_S3_REGION_NAME = os.environ.get("S3_REGION_NAME")
+DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+
+
+TEMPLATES_BASE_DIR = "D:\Learnings\Web Development Projects\Templates"
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
