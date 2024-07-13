@@ -11,6 +11,8 @@ class Template(models.Model):
     template_url = models.URLField(blank=True, null=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    liked = models.IntegerField(default=0, null=True)
+    saved = models.IntegerField(default=0, null=True)
 
     def __str__(self):
         return f"Template: { self.id}"
