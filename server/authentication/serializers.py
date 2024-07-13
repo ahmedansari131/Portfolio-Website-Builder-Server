@@ -12,7 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
     )  # Excluded when returning the user
     profile_image = serializers.ImageField(required=False)
     username = serializers.CharField(required=True)
-    is_terms_agree = serializers.BooleanField(default=False)
+    is_terms_agree = serializers.BooleanField(default=False, write_only=True)
 
     class Meta:
         model = User
@@ -128,7 +128,9 @@ class ResetPasswordSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
 
         if len(new_password) < 8:
-            return {"message": {"new_password": "Password must be of atleast 8 characters"}}
+            return {
+                "message": {"new_password": "Password must be of atleast 8 characters"}
+            }
 
         try:
             user = User.objects.get(id=request.user.id)
