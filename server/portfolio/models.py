@@ -13,6 +13,8 @@ class Template(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     liked = models.IntegerField(default=0, null=True)
     saved = models.IntegerField(default=0, null=True)
+    bucket_name = models.CharField(max_length=100, null=True)
+    cloudfront_domain = models.CharField(max_length=50, null=True)
 
     def __str__(self):
         return f"Template: { self.id}"
