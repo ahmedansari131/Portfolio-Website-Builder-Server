@@ -3,7 +3,7 @@ from server.response.api_response import ApiResponse
 from rest_framework.views import APIView
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from bs4 import BeautifulSoup
-from server.utils.s3 import s3_config
+from server.utils.s3 import s3_config, get_cloudfront_domain
 import json
 from .serializers import CreateProjectSerializer, ListTemplatesSerializer
 from .models import PortfolioProject, CustomizedTemplate, Template
@@ -97,23 +97,29 @@ class Project(APIView):
 
     def post(self, request):
         data = request.data
-
         try:
             serializer = CreateProjectSerializer(data=data)
             if serializer.is_valid(raise_exception=True):
-                s3_file_name = serializer.validated_data.get("s3_file_name")
-                s3_folder_name = serializer.validated_data.get("s3_folder_name")
-                bucket_name = serializer.validated_data.get("bucket_name")
+                project_name = serializer.validated_data.get("project_name")
+                template_name = serializer.validated_data.get("template_name")
+
+                if not isinstance(project_name, str) and project_name.get("error"):
+                    return ApiResponse.response_failed(
+                        message=project_name.get("message"), status=400
+                    )
 
                 template = get_object_or_404(
-                    Template, id=serializer.validated_data.get("template_id")
+                    Template,
+                    template_name=template_name,
                 )
 
-                elements_data = self.get_dom_elements_data(
-                    s3_folder_name, s3_file_name, bucket_name
+                dom_elements_data = self.get_dom_elements_data(
+                    s3_folder_name=template_name,
+                    s3_file_name="index.html",
+                    bucket_name=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
                 )
 
-                if elements_data:
+                if dom_elements_data:
                     try:
                         with transaction.atomic():
                             project_instance = PortfolioProject.objects.create(
@@ -126,34 +132,33 @@ class Project(APIView):
                             CustomizedTemplate.objects.create(
                                 template=template,
                                 portfolio_project=project_instance,
-                                title=elements_data.get("title"),
-                                meta=elements_data.get("meta"),
-                                links=elements_data.get("links"),
-                                scripts=elements_data.get("scripts"),
-                                body=elements_data.get("body"),
-                                style=elements_data.get("style"),
-                                css=elements_data.get("css"),
-                                js=elements_data.get("js"),
+                                title=dom_elements_data.get("title"),
+                                meta=dom_elements_data.get("meta"),
+                                links=dom_elements_data.get("links"),
+                                scripts=dom_elements_data.get("scripts"),
+                                body=dom_elements_data.get("body"),
+                                style=dom_elements_data.get("style"),
+                                css=dom_elements_data.get("css"),
+                                js=dom_elements_data.get("js"),
                             )
                     except Exception as error:
                         print(
-                            "Error occurred while creating the portfolio objects -> ",
+                            "This transaction cannot occurred due to an error -> ",
                             error,
                         )
                         return ApiResponse.response_failed(
-                            message="Error occurred while creating project! Please try again or contact at support@portify.com",
+                            message=f"Error occurred while creating project! Please try again or contact at support@portify.com {str(error)}",
                             status=500,
                         )
                 return ApiResponse.response_succeed(
                     message="Project created",
                     status=201,
-                    data={"project_id": project_instance.id},
+                    data={"project_name": project_instance.project_name},
                 )
 
         except Exception as error:
-            print("Error occurred while creating project -> ", error)
             return ApiResponse.response_failed(
-                message="Error occurred while creating project! Please try again",
+                message=f"Error occurred while creating project! Please try again {str(error)}",
                 status=500,
             )
 
@@ -162,6 +167,7 @@ class Project(APIView):
         )
 
 
+# TODO: If template is not found then it should give error, now it is saving
 class UploadTemplate(APIView):
     permission_classes = [IsAdminUser]
 
@@ -198,13 +204,23 @@ class UploadTemplate(APIView):
                                 s3_key,
                                 ExtraArgs={"ContentType": content_type},
                             )
-                template_url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_folder_key}index.html"
-                preview_url = f"https://{bucket_name}.s3.{region_name}.amazonaws.com/{s3_folder_key}assests/preview.png"
+                cloudfront_domain = get_cloudfront_domain(
+                    os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
+                )
+
+                template_cloudfront_url = (
+                    f"https://{cloudfront_domain}/{s3_folder_key}index.html"
+                )
+                template_preview_cloudfront_url = (
+                    f"https://{cloudfront_domain}/{s3_folder_key}assests/preview.png"
+                )
 
                 Template.objects.create(
                     template_name=template_name,
-                    template_url=template_url,
-                    template_preview=preview_url,
+                    template_url=template_cloudfront_url,
+                    template_preview=template_preview_cloudfront_url,
+                    bucket_name=bucket_name,
+                    cloudfront_domain=cloudfront_domain,
                     created_by=request.user,
                 )
 
@@ -221,7 +237,6 @@ class UploadTemplate(APIView):
 
 class ListTemplates(APIView):
     def get(self, request):
-
         try:
             templates = Template.objects.all()
             serializer = ListTemplatesSerializer(templates, many=True)
