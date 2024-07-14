@@ -8,7 +8,8 @@ def custom_exception_handler(exc, context):
     if response is not None:
         if isinstance(exc, exceptions.NotAuthenticated):
             return ApiResponse.response_failed(
-                message="Authentication credentials were not provided.", status=401
+                message="You are not signed in. Please signin to proceed further!",
+                status=401,
             )
         elif isinstance(exc, exceptions.PermissionDenied):
             return ApiResponse.response_failed(
