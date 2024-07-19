@@ -28,7 +28,6 @@ class ListTemplatesSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-
 class TemplateDataSerializer(serializers.ModelSerializer):
     cloudfront_domain = serializers.SerializerMethodField()
 
@@ -40,3 +39,25 @@ class TemplateDataSerializer(serializers.ModelSerializer):
         return get_cloudfront_domain(
             os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
         )
+    
+
+class CustomizedTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomizedTemplate
+        fields = ['id']
+
+
+class ListPortfolioProjectSerializer(serializers.ModelSerializer):
+    created_by = UserSerializer()
+    customized_template_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PortfolioProject
+        fields = "__all__"
+
+    def get_customized_template_id(self, obj):
+        try:
+            customized_template = CustomizedTemplate.objects.get(portfolio_project=obj)
+            return customized_template.id
+        except CustomizedTemplate.DoesNotExist:
+            return None
