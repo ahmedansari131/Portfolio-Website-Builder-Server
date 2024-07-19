@@ -1,7 +1,9 @@
 from rest_framework import serializers
-from .models import PortfolioProject, Template
+from .models import PortfolioProject, Template, CustomizedTemplate
 from authentication.serializers import UserSerializer
 from server.utils.response import BaseResponse
+from server.utils.s3 import get_cloudfront_domain
+import os
 
 
 class CreateProjectSerializer(serializers.ModelSerializer):
@@ -24,3 +26,17 @@ class ListTemplatesSerializer(serializers.ModelSerializer):
     class Meta:
         model = Template
         fields = "__all__"
+
+
+
+class TemplateDataSerializer(serializers.ModelSerializer):
+    cloudfront_domain = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomizedTemplate
+        fields = "__all__"
+
+    def get_cloudfront_domain(self, obj):
+        return get_cloudfront_domain(
+            os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
+        )
