@@ -9,6 +9,7 @@ from .serializers import (
     CreateProjectSerializer,
     ListTemplatesSerializer,
     TemplateDataSerializer,
+    ListPortfolioProjectSerializer
 )
 from .models import PortfolioProject, CustomizedTemplate, Template
 from django.shortcuts import get_object_or_404
@@ -53,7 +54,7 @@ class Project(APIView):
                                     "project_name"
                                 ),
                                 created_by=request.user,
-                                pre_built_template = template
+                                pre_built_template=template,
                             )
                             # project_instance.pre_built_template.add(template)
 
@@ -401,5 +402,32 @@ class ListTemplates(APIView):
             print("Error occur while getting the template", error)
             return ApiResponse.response_failed(
                 message="Error occurred on the server! Please try again or contact at support@portfiy.com",
+                status=500,
+            )
+
+
+class ListPortfolioProject(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if not user:
+            return ApiResponse.response_failed(
+                message="You are not authenticated. Please signin first!", status=401
+            )
+
+        try:
+            projects = PortfolioProject.objects.filter(created_by=user)
+            if not projects:
+                return ApiResponse.response_failed(
+                    message="No project found", status=404
+                )
+
+            serializer = ListPortfolioProjectSerializer(projects, many=True)
+            return ApiResponse.response_succeed(message="Project found",data=serializer.data, status=200)
+
+        except Exception as error:
+            return ApiResponse.response_failed(
+                message=f"Error occurred while getting the projects {str(error)}",
                 status=500,
             )
