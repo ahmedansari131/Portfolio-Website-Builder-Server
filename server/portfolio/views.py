@@ -3,7 +3,7 @@ from server.response.api_response import ApiResponse
 from rest_framework.views import APIView
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from bs4 import BeautifulSoup
-from server.utils.s3 import s3_config, get_cloudfront_domain
+from server.utils.s3 import s3_config, get_cloudfront_domain, download_assests
 import json
 from .serializers import (
     CreateProjectSerializer,
@@ -18,7 +18,7 @@ import os
 from django.conf import settings
 import mimetypes
 from django.http import Http404
-from .utils import generate_random_number, download_assests
+from .utils import generate_random_number
 
 
 class Project(APIView):
