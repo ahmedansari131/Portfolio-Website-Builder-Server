@@ -9,7 +9,7 @@ from .serializers import (
     CreateProjectSerializer,
     ListTemplatesSerializer,
     TemplateDataSerializer,
-    ListPortfolioProjectSerializer
+    ListPortfolioProjectSerializer,
 )
 from .models import PortfolioProject, CustomizedTemplate, Template
 from django.shortcuts import get_object_or_404
@@ -24,6 +24,13 @@ from .utils import generate_random_number
 
 class Project(APIView):
     permission_classes = [IsAuthenticated]
+
+    def get_section(self, template_data):
+        sections = []
+        for elem in template_data["body"][0]["children"]:
+            if elem["tag"] == "section":
+                sections.append({elem["tag"]: elem["attributes"]["id"]})
+        return sections
 
     def post(self, request):
         data = request.data
@@ -47,6 +54,8 @@ class Project(APIView):
                 template_data = template_serializer.data.get("template_dom_tree")
 
                 if template_data:
+                    sections = self.get_section(template_data)
+
                     try:
                         with transaction.atomic():
                             project_instance = PortfolioProject.objects.create(
@@ -56,7 +65,6 @@ class Project(APIView):
                                 created_by=request.user,
                                 pre_built_template=template,
                             )
-                            # project_instance.pre_built_template.add(template)
 
                             customized_template_instance = (
                                 CustomizedTemplate.objects.create(
@@ -70,6 +78,7 @@ class Project(APIView):
                                     style=template_data.get("style"),
                                     css=template_data.get("css"),
                                     js=template_data.get("js"),
+                                    sections=sections,
                                 )
                             )
                     except Exception as error:
@@ -132,6 +141,15 @@ class UploadTemplate(APIView):
         if not elem:
             return None
 
+        if (
+            not elem.name == "meta"
+            and not elem.name == "link"
+            and not elem.name == "title"
+            and not elem.name == "style"
+            and not elem.name == "script"
+        ):
+            elem = self.assign_class_name(elem)
+
         if elem.name == "img":
             elem = self.assign_unique_id(elem)
 
@@ -149,6 +167,18 @@ class UploadTemplate(APIView):
             elif child.name is not None:
                 dom_tree["children"].append(self.build_dom_tree(child))
         return dom_tree
+
+
+    def assign_class_name(self, elem):
+        if elem:
+            # Check if the element has a "class" attribute
+            if elem.has_attr("class"):
+                # Append the new class to the list of existing classes
+                elem["class"].append("portify-class-" + generate_random_number(digits=8))
+            else:
+                # Set a new class if none exists
+                elem["class"] = ["portify-class-" + generate_random_number(digits=8)]
+            return elem
 
     def assign_unique_id(self, elem):
         if elem:
@@ -424,7 +454,9 @@ class ListPortfolioProject(APIView):
                 )
 
             serializer = ListPortfolioProjectSerializer(projects, many=True)
-            return ApiResponse.response_succeed(message="Project found",data=serializer.data, status=200)
+            return ApiResponse.response_succeed(
+                message="Project found", data=serializer.data, status=200
+            )
 
         except Exception as error:
             return ApiResponse.response_failed(
