@@ -50,6 +50,7 @@ class CustomizedTemplateSerializer(serializers.ModelSerializer):
 class ListPortfolioProjectSerializer(serializers.ModelSerializer):
     created_by = UserSerializer()
     customized_template_id = serializers.SerializerMethodField()
+    template_name = serializers.SerializerMethodField()
 
     class Meta:
         model = PortfolioProject
@@ -59,5 +60,12 @@ class ListPortfolioProjectSerializer(serializers.ModelSerializer):
         try:
             customized_template = CustomizedTemplate.objects.get(portfolio_project=obj)
             return customized_template.id
+        except CustomizedTemplate.DoesNotExist:
+            return None
+
+    def get_template_name(self, obj):
+        try:
+            template_name = CustomizedTemplate.objects.get(portfolio_project=obj)
+            return template_name.template.template_name
         except CustomizedTemplate.DoesNotExist:
             return None
