@@ -27,7 +27,12 @@ class PortfolioProject(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_deployed = models.BooleanField(default=False)
     deployed_url = models.URLField(default="")
-    pre_built_template = models.ForeignKey(Template, on_delete=models.CASCADE, null=True)
+    custom_domain_name = models.CharField(
+        max_length=255, blank=True, null=True, default=""
+    )
+    pre_built_template = models.ForeignKey(
+        Template, on_delete=models.CASCADE, null=True
+    )
 
     def __str__(self):
         return f"Project id: {self.id} | Created by: {self.created_by.username}"
@@ -47,6 +52,7 @@ class CustomizedTemplate(models.Model):
     css = models.JSONField(default=dict)
     js = models.JSONField(default=dict)
     assests = models.JSONField(default=dict, null=True)
+    sections = models.JSONField(default=dict, null=True)
 
     def __str__(self):
-        return f"Id: {self.id}"
+        return f"Custom Template Id: {self.id}"
