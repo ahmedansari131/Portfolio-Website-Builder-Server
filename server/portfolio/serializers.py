@@ -44,7 +44,7 @@ class TemplateDataSerializer(serializers.ModelSerializer):
 class CustomizedTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomizedTemplate
-        fields = ['id']
+        fields = '__all__'
 
 
 class ListPortfolioProjectSerializer(serializers.ModelSerializer):
