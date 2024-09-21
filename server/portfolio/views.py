@@ -10,6 +10,7 @@ from .serializers import (
     ListTemplatesSerializer,
     TemplateDataSerializer,
     ListPortfolioProjectSerializer,
+    CustomizedTemplateSerializer,
 )
 from .models import PortfolioProject, CustomizedTemplate, Template
 from django.shortcuts import get_object_or_404
@@ -155,7 +156,7 @@ class UploadTemplate(APIView):
 
         dom_tree = {
             "tag": elem.name,
-            "attributes": elem.attrs,
+            "attributes": elem.attrs if elem.attrs else {},
             "text": elem.string.strip() if elem.string else "",
             "children": [],
         }
@@ -168,13 +169,14 @@ class UploadTemplate(APIView):
                 dom_tree["children"].append(self.build_dom_tree(child))
         return dom_tree
 
-
     def assign_class_name(self, elem):
         if elem:
             # Check if the element has a "class" attribute
             if elem.has_attr("class"):
                 # Append the new class to the list of existing classes
-                elem["class"].append("portify-class-" + generate_random_number(digits=8))
+                elem["class"].append(
+                    "portify-class-" + generate_random_number(digits=8)
+                )
             else:
                 # Set a new class if none exists
                 elem["class"] = ["portify-class-" + generate_random_number(digits=8)]
@@ -463,3 +465,283 @@ class ListPortfolioProject(APIView):
                 message=f"Error occurred while getting the projects {str(error)}",
                 status=500,
             )
+
+
+class UpdateCustomizeTemplate(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data
+        customized_template_id = data.get("customized_template_id")
+        customized_template_body = data.get("body")
+        customized_template_style = data.get("style")
+
+        print(json.dumps(customized_template_body, indent=2))
+
+        try:
+            customized_template = CustomizedTemplate.objects.get(
+                id=customized_template_id
+            )
+
+            if not customized_template:
+                return ApiResponse.response_failed(
+                    status=404, message="Project not found", success=False
+                )
+
+            if customized_template_style:
+                customized_template.style = customized_template_style
+
+            if customized_template_body:
+                customized_template.body = customized_template_body
+
+            customized_template.save()
+
+        except Exception as error:
+            print("Error occurred -> ", error)
+            return ApiResponse.response_failed(
+                success=False, message="No project found", status=404
+            )
+
+        return ApiResponse.response_succeed(
+            status=200, message="Success saving", success=True
+        )
+
+
+class Deployment(APIView):
+    def parse_element(self, elements, soup, parent=None):
+        top_level_elements = []
+        for element in elements:
+            tag_name = element.get("tag").lower()
+            new_tag = soup.new_tag(tag_name)
+
+            if "attributes" in element and len(element.get("attributes")):
+                for attr, value in element.get("attributes").items():
+                    if isinstance(value, list):
+                        new_tag[attr] = " ".join(value)  # Join classes with space
+                    else:
+                        new_tag[attr] = value
+            if "text" in element and element.get("text"):
+                new_tag.string = element.get("text")
+
+            if "children" in element and element.get("children"):
+                self.parse_element(element.get("children"), soup, new_tag)
+
+            if parent:
+                parent.append(new_tag)
+            else:
+                top_level_elements.append(new_tag)
+
+        if parent is None:
+            return top_level_elements
+
+        return parent
+
+    def parse_meta(self, meta_data, soup, description):
+        for element in meta_data:
+            tag_name = element.get("tag")
+            attributes = element.get("attributes", {})
+
+            # Extract the "name" attribute separately to avoid conflicts
+            name_attr = attributes.pop("name", None)
+
+            # Create a new tag
+            new_tag = soup.new_tag(tag_name, **attributes)
+
+            # If there was a "name" attribute, set it manually
+            if name_attr:
+                new_tag["name"] = name_attr
+
+            # Add text if present
+            if element.get("text"):
+                new_tag.string = element["text"]
+
+            # Append the tag to the soup
+            soup.append(new_tag)
+
+        new_tag = soup.new_tag(
+            "meta", attrs={"name": "description", "content": description}
+        )
+        soup.append(new_tag)
+        return soup
+
+    def build_html(self, meta, body, links, script):
+        soup = BeautifulSoup("", "html.parser")
+        html = soup.new_tag("html")
+        head = soup.new_tag("head")
+
+        html.append(self.parse_meta(meta, soup, "This is me"))
+        html_links = self.parse_element(links, soup)
+        for link in html_links:
+            head.append(link)
+        html.append(head)
+        html.append(self.parse_element(body, soup)[0])
+        return html
+
+    def convert_json_to_css(self, css_json):
+        css_rules = []
+
+        # Iterate over the JSON object to convert it to CSS format
+        for class_name, properties in css_json.items():
+            css_rule = f".{class_name} {{\n"
+            for prop in properties:
+                if prop.get("value"):
+                    property_name = prop.get("property")
+                    property_value = f"{prop.get('value')}"
+                    css_rule += (
+                        f"  {property_name}: {property_value.lower()} !important;\n"
+                    )
+            css_rule += "}"
+            css_rules.append(css_rule)
+
+        return "\n".join(css_rules)
+
+    def extract_template_css(self, s3_client, template_name):
+        try:
+            css_response = {}
+            cssData = [{"file": "style.css"}, {"file": "responsive.css"}]
+
+            for data in cssData:
+                response = s3_client.get_object(
+                    Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
+                    Key=f'{template_name}/css/{data["file"]}',
+                )
+                css = response["Body"].read().decode("utf-8")
+                if data["file"] == "style.css":
+                    css_response["template_css"] = css
+                elif data["file"] == "responsive.css":
+                    css_response["template_responsive_css"] = css
+
+            return css_response
+
+        except Exception as error:
+            print("Error occurred while getting the css from the template ->", error)
+            return False
+
+    def extract_template_js(self, s3_client, template_name):
+        try:
+            js_response = {}
+            js_data = [{"file": "script.js"}]
+
+            for data in js_data:
+                response = s3_client.get_object(
+                    Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
+                    Key=f'{template_name}/js/{data["file"]}',
+                )
+                js = response["Body"].read().decode("utf-8")
+                js_response["template_js"] = js
+
+            return js_response
+
+        except Exception as error:
+            print("Error occurred while getting the js from the template ->", error)
+            return False
+
+    def post(self, request):
+        data = request.data
+        custom_template_id = data.get("customized_template_id")
+        project_name = str(data.get("project_name"))
+
+        try:
+            customized_template_instance = CustomizedTemplate.objects.get(
+                id=custom_template_id
+            )
+            serializer = CustomizedTemplateSerializer(customized_template_instance)
+        except CustomizedTemplate.DoesNotExist:
+            print("Custom template with the given id does not exist.")
+            return ApiResponse.response_failed(
+                message="Error occurred on server", status=500, success=False
+            )
+
+        meta_data = serializer.data.get("meta")
+        body = serializer.data.get("body")
+        links = serializer.data.get("links")
+        style = serializer.data.get("style")
+        script = serializer.data.get("scripts")
+        template_name = customized_template_instance.template.template_name
+
+        html = self.build_html(meta=meta_data, body=body, links=links, script=script)
+        custom_css = self.convert_json_to_css(style)
+
+        s3_client = s3_config()
+
+        css_response = self.extract_template_css(
+            s3_client=s3_client, template_name=template_name
+        )
+
+        js_response = self.extract_template_js(
+            s3_client=s3_client, template_name=template_name
+        )
+        merged_css = css_response["template_css"] + "\n" + custom_css
+
+        bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+        content_to_upload = [
+            {
+                "file_name": "index.html",
+                "content_type": "text/html",
+                "file_content": str(html),
+            },
+            {
+                "file_name": "css/style.css",
+                "content_type": "text/css",
+                "file_content": str(merged_css),
+            },
+            {
+                "file_name": "css/responsive.css",
+                "content_type": "text/css",
+                "file_content": str(css_response["template_responsive_css"]),
+            },
+            {
+                "file_name": "js/script.js",
+                "content_type": "application/javascript",
+                "file_content": str(js_response["template_js"]),
+            },
+        ]
+
+        try:
+            for content in content_to_upload:
+                s3_client.put_object(
+                    Body=str(content["file_content"]),
+                    Bucket=bucket_name,
+                    Key=f'{project_name}/{content["file_name"]}',
+                    ContentType=content["content_type"],
+                )
+        except Exception as error:
+            print("Error occurred on server while deploying project to s3 -> ", error)
+            return ApiResponse.response_failed(
+                success=False, message="Error occurred on server", status=500
+            )
+
+        try:
+            cloudfront_domain = get_cloudfront_domain(
+                distribution_id=os.environ.get(
+                    "DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID"
+                )
+            )
+            deployed_url = f"{cloudfront_domain}/{project_name}/index.html"
+        except Exception as error:
+            print("Error occurred while building cloudfront url -> ", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on server while deploying the site",
+                status=500,
+                success=False,
+            )
+
+        try:
+            customized_template_instance.portfolio_project.deployed_url = deployed_url
+            customized_template_instance.portfolio_project.is_deployed = True
+            customized_template_instance.portfolio_project.save()
+        except Exception as error:
+            print(
+                "Error occurred while updating portfolio project for deployment -> ",
+                error,
+            )
+            return ApiResponse.response_failed(
+                message="Error occurred on server", success=False, status=500
+            )
+
+        return ApiResponse.response_succeed(
+            status=200,
+            message="Portfolio deployed",
+            success=True,
+            data={"deployed_url": deployed_url},
+        )
