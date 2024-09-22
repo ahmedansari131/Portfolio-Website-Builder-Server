@@ -67,20 +67,18 @@ class Project(APIView):
                                 pre_built_template=template,
                             )
 
-                            customized_template_instance = (
-                                CustomizedTemplate.objects.create(
-                                    template=template,
-                                    portfolio_project=project_instance,
-                                    title=template_data.get("title"),
-                                    meta=template_data.get("meta"),
-                                    links=template_data.get("links"),
-                                    scripts=template_data.get("scripts"),
-                                    body=template_data.get("body"),
-                                    style=template_data.get("style"),
-                                    css=template_data.get("css"),
-                                    js=template_data.get("js"),
-                                    sections=sections,
-                                )
+                            customized_template_instance = CustomizedTemplate.objects.create(
+                                template=template,
+                                portfolio_project=project_instance,
+                                # title=template_data.get("title"),
+                                meta=template_data.get("meta"),
+                                links=template_data.get("links"),
+                                scripts=template_data.get("scripts"),
+                                body=template_data.get("body"),
+                                style=template_data.get("style"),
+                                css=template_data.get("css"),
+                                js=template_data.get("js"),
+                                sections=sections,
                             )
                     except Exception as error:
                         print(
@@ -94,7 +92,10 @@ class Project(APIView):
                 return ApiResponse.response_succeed(
                     message="Project created",
                     status=201,
-                    data={"customized_template_id": customized_template_instance.id},
+                    data={
+                        "customized_template_id": customized_template_instance.id,
+                        "project_name": customized_template_instance.portfolio_project.project_name,
+                    },
                 )
 
         except Exception as error:
@@ -508,6 +509,8 @@ class UpdateCustomizeTemplate(APIView):
 
 
 class Deployment(APIView):
+    permission_classes = [IsAuthenticated]
+
     def parse_element(self, elements, soup, parent=None):
         top_level_elements = []
         for element in elements:
@@ -564,12 +567,15 @@ class Deployment(APIView):
         soup.append(new_tag)
         return soup
 
-    def build_html(self, meta, body, links, script):
+    def build_html(self, meta, body, links, script, title, description):
         soup = BeautifulSoup("", "html.parser")
         html = soup.new_tag("html")
         head = soup.new_tag("head")
+        document_title = soup.new_tag("title")
+        document_title.string = title
 
-        html.append(self.parse_meta(meta, soup, "This is me"))
+        html.append(self.parse_meta(meta, soup, description))
+        head.append(document_title)
         html_links = self.parse_element(links, soup)
         for link in html_links:
             head.append(link)
@@ -640,6 +646,8 @@ class Deployment(APIView):
         data = request.data
         custom_template_id = data.get("customized_template_id")
         project_name = str(data.get("project_name"))
+        title = request.data.get("title")
+        description = request.data.get("description")
 
         try:
             customized_template_instance = CustomizedTemplate.objects.get(
@@ -659,7 +667,14 @@ class Deployment(APIView):
         script = serializer.data.get("scripts")
         template_name = customized_template_instance.template.template_name
 
-        html = self.build_html(meta=meta_data, body=body, links=links, script=script)
+        html = self.build_html(
+            meta=meta_data,
+            body=body,
+            links=links,
+            script=script,
+            title=title,
+            description=description,
+        )
         custom_css = self.convert_json_to_css(style)
 
         s3_client = s3_config()
@@ -744,4 +759,19 @@ class Deployment(APIView):
             message="Portfolio deployed",
             success=True,
             data={"deployed_url": deployed_url},
+        )
+
+    def get(self, request):
+        user = request.user
+
+        try:
+            deployed_project_instance = PortfolioProject.objects.filter(created_by=user, is_deployed=True)
+            serializer = ListPortfolioProjectSerializer(deployed_project_instance, many=True)
+        except Exception as error:
+            print("Error occurred while getting the deployed projects -> ", error)
+            return ApiResponse.response_failed(message="Error occurred on server while getting the deployed projects", status=500, success=False)
+
+
+        return ApiResponse.response_succeed(
+            message="Deployed projects found.", success=True, status=200, data=serializer.data
         )
