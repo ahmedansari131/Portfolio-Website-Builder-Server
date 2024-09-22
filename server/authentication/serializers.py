@@ -1,9 +1,8 @@
 from rest_framework import serializers
-from .models import User
+from .models import User, PasswordReset
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db.models import Q
 from server.utils.response import BaseResponse
-from .utils import get_existing_user
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -13,7 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
     )  # Excluded when returning the user
     profile_image = serializers.ImageField(required=False)
     username = serializers.CharField(required=True)
-    is_terms_agree = serializers.BooleanField(default=False)
+    is_terms_agree = serializers.BooleanField(default=False, write_only=True)
 
     class Meta:
         model = User
@@ -125,21 +124,27 @@ class ResetPasswordSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         password = data.get("password")
+        new_password = data.get("new_password")
         request = self.context.get("request")
+
+        if len(new_password) < 8:
+            return {
+                "message": {"new_password": "Password must be of atleast 8 characters"}
+            }
 
         try:
             user = User.objects.get(id=request.user.id)
             if user and not user.check_password(password):
-                raise serializers.ValidationError("Incorrect password")
+                return {"message": {"old_password": "Incorrect Password"}}
         except User.DoesNotExist:
-            raise serializers.ValidationError("User does not exist")
+            return {"message": "User does not exist"}
         except Exception as error:
-            raise serializers.ValidationError(error)
+            return {"message": "Error occured on server"}
 
         return data
 
 
-class ForgotPasswordSerializer(serializers.ModelSerializer):
+class ForgotPasswordRequestSerializer(serializers.ModelSerializer):
     identifier = serializers.CharField(max_length=100)
 
     class Meta:
@@ -149,35 +154,38 @@ class ForgotPasswordSerializer(serializers.ModelSerializer):
     def validate(self, data):
         identifier = data.get("identifier")
 
-        user = LoginSerializer.user_exist(data=identifier)
-
-        if not user:
-            raise serializers.ValidationError("User does not exist")
+        try:
+            user = User.objects.get(Q(email=identifier) | Q(username=identifier))
+        except User.DoesNotExist:
+            return {"message": {"identifier": "User does not exist"}}
+        except Exception as error:
+            raise serializers.ValidationError(error)
 
         data["user"] = user
         return data
 
 
-class ChangeForgotPasswordSerializer(serializers.ModelSerializer):
-    new_password = serializers.CharField(max_length=100, write_only=True)
+class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
+    otp = serializers.CharField(max_length=6, write_only=True)
+    new_password = serializers.CharField(write_only=True)
 
     class Meta:
-        model = User
-        fields = ["new_password"]
+        model = PasswordReset
+        fields = ["otp", "new_password"]
 
     def validate(self, data):
+        otp = data.get("otp")
         new_password = data.get("new_password")
-        user_id = self.context.get("user_id")
-        try:
-            user = get_existing_user(user_id=user_id)
+        user = self.context.get("user")
+        token = self.context.get("token")
+        request = self.context.get("request")
 
-            if not isinstance(user, User):
-                raise serializers.ValidationError(user)
+        if len(new_password) < 8:
+            return {
+                "message": {"new_password": "Password must be of 8 characters long"}
+            }
 
-            if user.check_password(new_password):
-                raise serializers.ValidationError(
-                    "New password must be different from previous password"
-                )
-            return data
-        except Exception as error:
-            raise serializers.ValidationError(error)
+        if len(otp) < 6:
+            return {"message": {"otp": "OTP must be of 6 digits"}}
+
+        return data

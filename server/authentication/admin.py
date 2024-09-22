@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User
+from .models import User, PasswordReset
 
 class UserAdmin(BaseUserAdmin):
     list_display = ('email', 'username', 'is_admin', 'is_active')
@@ -21,3 +21,4 @@ class UserAdmin(BaseUserAdmin):
     filter_horizontal = ()
 
 admin.site.register(User, UserAdmin)
+admin.site.register(PasswordReset)
