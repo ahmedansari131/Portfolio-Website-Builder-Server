@@ -29,4 +29,9 @@ urlpatterns = [
         Deployment.as_view(),
         name="deploy_portfolio",
     ),
+    path(
+        "list-deployed-portfolio/",
+        Deployment.as_view(),
+        name="list_deployed_portfolio",
+    ),
 ]
