@@ -477,8 +477,6 @@ class UpdateCustomizeTemplate(APIView):
         customized_template_body = data.get("body")
         customized_template_style = data.get("style")
 
-        print(json.dumps(customized_template_body, indent=2))
-
         try:
             customized_template = CustomizedTemplate.objects.get(
                 id=customized_template_id
@@ -675,7 +673,7 @@ class Deployment(APIView):
             title=title,
             description=description,
         )
-        custom_css = self.convert_json_to_css(style)
+        custom_css = self.convert_json_to_css(style[0])
 
         s3_client = s3_config()
 
