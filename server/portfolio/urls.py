@@ -1,5 +1,13 @@
 from django.urls import path
-from .views import Project, UploadTemplate, ListTemplates, ListPortfolioProject, UpdateCustomizeTemplate, Deployment
+from .views import (
+    Project,
+    UploadTemplate,
+    ListTemplates,
+    ListPortfolioProject,
+    UpdateCustomizeTemplate,
+    Deployment,
+    DeletePortfolioProject
+)
 
 urlpatterns = [
     path("create-project/", Project.as_view(), name="create_project"),
@@ -33,5 +41,10 @@ urlpatterns = [
         "list-deployed-portfolio/",
         Deployment.as_view(),
         name="list_deployed_portfolio",
+    ),
+    path(
+        "delete-project/<str:project_id>/",
+        DeletePortfolioProject.as_view(),
+        name="delete_project",
     ),
 ]

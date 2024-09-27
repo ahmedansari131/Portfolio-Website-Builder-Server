@@ -33,9 +33,19 @@ class PortfolioProject(models.Model):
     pre_built_template = models.ForeignKey(
         Template, on_delete=models.CASCADE, null=True
     )
+    is_deleted = models.BooleanField(default=False, null=True)
+
+    def save(self, *args, **kwargs):
+    # Propagate the deletion to the related CustomizedTemplate
+        if self.is_deleted:
+            customized_template = getattr(self, 'customizedtemplate', None)
+            if customized_template:
+                customized_template.is_deleted = True
+                customized_template.save()
+        super(PortfolioProject, self).save(*args, **kwargs)
 
     def __str__(self):
-        return f"Project id: {self.id} | Created by: {self.created_by.username}"
+        return f"Project id: {self.id} | Created by: {self.created_by.username} | Project Name: {self.project_name}"
 
 
 class CustomizedTemplate(models.Model):
@@ -53,6 +63,7 @@ class CustomizedTemplate(models.Model):
     js = models.JSONField(default=dict)
     assests = models.JSONField(default=dict, null=True)
     sections = models.JSONField(default=dict, null=True)
+    is_deleted = models.BooleanField(default=False, null=True)
 
     def __str__(self):
         return f"Custom Template Id: {self.id}"

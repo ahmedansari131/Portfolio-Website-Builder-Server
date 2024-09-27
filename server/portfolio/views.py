@@ -59,6 +59,7 @@ class Project(APIView):
 
                     try:
                         with transaction.atomic():
+
                             project_instance = PortfolioProject.objects.create(
                                 project_name=serializer.validated_data.get(
                                     "project_name"
@@ -450,7 +451,9 @@ class ListPortfolioProject(APIView):
             )
 
         try:
-            projects = PortfolioProject.objects.filter(created_by=user)
+            projects = PortfolioProject.objects.filter(
+                created_by=user, is_deleted=False
+            )
             if not projects:
                 return ApiResponse.response_failed(
                     message="No project found", status=404
@@ -655,6 +658,13 @@ class Deployment(APIView):
         except CustomizedTemplate.DoesNotExist:
             print("Custom template with the given id does not exist.")
             return ApiResponse.response_failed(
+                message="Your customized portfolio template not found.",
+                status=500,
+                success=False,
+            )
+        except Exception as error:
+            print("Error occurred on server", error)
+            return ApiResponse.response_failed(
                 message="Error occurred on server", status=500, success=False
             )
 
@@ -763,13 +773,78 @@ class Deployment(APIView):
         user = request.user
 
         try:
-            deployed_project_instance = PortfolioProject.objects.filter(created_by=user, is_deployed=True)
-            serializer = ListPortfolioProjectSerializer(deployed_project_instance, many=True)
+            deployed_project_instance = PortfolioProject.objects.filter(
+                created_by=user, is_deployed=True
+            )
+
+            if not deployed_project_instance:
+                return ApiResponse.response_failed(
+                    message="No deployed project found.", success=False, status=404
+                )
+                
+            serializer = ListPortfolioProjectSerializer(
+                deployed_project_instance, many=True
+            )
         except Exception as error:
             print("Error occurred while getting the deployed projects -> ", error)
-            return ApiResponse.response_failed(message="Error occurred on server while getting the deployed projects", status=500, success=False)
-
+            return ApiResponse.response_failed(
+                message="Error occurred on server while getting the deployed projects",
+                status=500,
+                success=False,
+            )
 
         return ApiResponse.response_succeed(
-            message="Deployed projects found.", success=True, status=200, data=serializer.data
+            message="Deployed projects found.",
+            success=True,
+            status=200,
+            data=serializer.data,
+        )
+
+
+class DeletePortfolioProject(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, project_id):
+        delete = request.GET.get("delete", "false").lower()
+        delete_flag = delete == "true"
+
+        if not project_id:
+            return ApiResponse.response_failed(
+                message="Project id is not found. Please try again!",
+                success=False,
+                status=404,
+            )
+
+        if delete is None:
+            return ApiResponse.response_failed(
+                message="Delete value is not provided. Please try again!",
+                success=False,
+                status=404,
+            )
+
+        try:
+            project_instance = PortfolioProject.objects.get(id=project_id)
+
+            if delete_flag:
+                project_instance.is_deleted = True
+            elif not delete_flag:
+                project_instance.is_deleted = False
+
+            project_instance.save()
+
+        except PortfolioProject.DoesNotExist:
+            print("Project does not exist")
+            return ApiResponse.response_failed(
+                message="Project not found. Please check you have created one.",
+                success=False,
+                status=404,
+            )
+        except Exception as error:
+            print("Error occurred while deleting the project", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on server", status=500, success=False
+            )
+
+        return ApiResponse.response_succeed(
+            success=True, message="Project deleted successfully", status=200
         )
