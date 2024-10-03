@@ -30,6 +30,7 @@ class ListTemplatesSerializer(serializers.ModelSerializer):
 
 class TemplateDataSerializer(serializers.ModelSerializer):
     cloudfront_domain = serializers.SerializerMethodField()
+    is_deployed = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomizedTemplate
@@ -39,6 +40,9 @@ class TemplateDataSerializer(serializers.ModelSerializer):
         return get_cloudfront_domain(
             os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
         )
+
+    def get_is_deployed(self, obj):
+        return obj.portfolio_project.is_deployed
     
 
 class CustomizedTemplateSerializer(serializers.ModelSerializer):
