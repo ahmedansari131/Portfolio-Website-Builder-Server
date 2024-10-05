@@ -23,6 +23,8 @@ class Template(models.Model):
 
 class PortfolioProject(models.Model):
     project_name = models.CharField(max_length=50, unique=True)
+    portfolio_title = models.CharField(max_length=50, default="Portfolio")
+    portfolio_description = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     is_deployed = models.BooleanField(default=False)
@@ -36,9 +38,9 @@ class PortfolioProject(models.Model):
     is_deleted = models.BooleanField(default=False, null=True)
 
     def save(self, *args, **kwargs):
-    # Propagate the deletion to the related CustomizedTemplate
+        # Propagate the deletion to the related CustomizedTemplate
         if self.is_deleted:
-            customized_template = getattr(self, 'customizedtemplate', None)
+            customized_template = getattr(self, "customizedtemplate", None)
             if customized_template:
                 customized_template.is_deleted = True
                 customized_template.save()
