@@ -675,6 +675,10 @@ class Deployment(APIView):
         script = serializer.data.get("scripts")
         template_name = customized_template_instance.template.template_name
 
+        if not title and not description:
+            title = customized_template_instance.portfolio_project.portfolio_title
+            description = customized_template_instance.portfolio_project.portfolio_description
+
         html = self.build_html(
             meta=meta_data,
             body=body,
@@ -752,6 +756,11 @@ class Deployment(APIView):
         try:
             customized_template_instance.portfolio_project.deployed_url = deployed_url
             customized_template_instance.portfolio_project.is_deployed = True
+            customized_template_instance.portfolio_project.portfolio_title = title
+            customized_template_instance.portfolio_project.portfolio_description = title
+            customized_template_instance.portfolio_project.portfolio_description = (
+                description
+            )
             customized_template_instance.portfolio_project.save()
         except Exception as error:
             print(
@@ -781,7 +790,7 @@ class Deployment(APIView):
                 return ApiResponse.response_failed(
                     message="No deployed project found.", success=False, status=404
                 )
-                
+
             serializer = ListPortfolioProjectSerializer(
                 deployed_project_instance, many=True
             )
