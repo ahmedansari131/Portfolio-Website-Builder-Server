@@ -6,7 +6,8 @@ from .views import (
     ListPortfolioProject,
     UpdateCustomizeTemplate,
     Deployment,
-    DeletePortfolioProject
+    DeletePortfolioProject,
+    PortfolioDomain,
 )
 
 urlpatterns = [
@@ -46,5 +47,10 @@ urlpatterns = [
         "delete-project/<str:project_id>/",
         DeletePortfolioProject.as_view(),
         name="delete_project",
+    ),
+    path(
+        "check-domain-availability/",
+        PortfolioDomain.as_view(),
+        name="check_domain_availability",
     ),
 ]
