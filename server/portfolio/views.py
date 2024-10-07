@@ -21,6 +21,8 @@ from django.conf import settings
 import mimetypes
 from django.http import Http404
 from .utils import generate_random_number
+import boto3
+import re
 
 
 class Project(APIView):
@@ -350,12 +352,86 @@ class UploadTemplate(APIView):
             }
         return {}
 
+    def create_separate_universal_style(self, template_path):
+        # Read the existing CSS file
+        template_style_path = os.path.join(template_path, "css", "style.css")
+        with open(template_style_path, "r") as file:
+            css_content = file.read()
+
+        # Extract body styles using regex
+        universal_styles = re.findall(r"\*\s*{(.*?)\}", css_content, re.DOTALL)
+        body_styles = re.findall(r"body\s*{(.*?)\}", css_content, re.DOTALL)
+
+        # Create a new CSS file for body styles
+        output_body_file_name = "body-styles.css"
+        output_body_style_path = os.path.join(
+            template_path, "css", output_body_file_name
+        )
+        if body_styles:
+            with open(output_body_style_path, "w") as body_file:
+                # Write universal styles if found
+                if universal_styles:
+                    body_file.write(f"* {{\n{universal_styles[0].strip()}\n}}\n\n")
+
+                # Write body styles if found
+                if body_styles:
+                    body_file.write(f"body {{\n{body_styles[0].strip()}\n}}")
+
+        # Remove the extracted styles from the original CSS content
+        updated_css_content = css_content
+        if universal_styles:
+            updated_css_content = re.sub(
+                r"\*\s*{.*?}\s*", "", updated_css_content, flags=re.DOTALL
+            )
+
+        if body_styles:
+            updated_css_content = re.sub(
+                r"body\s*{.*?}\s*", "", updated_css_content, flags=re.DOTALL
+            )
+
+        # Write the updated CSS back to style.css
+        with open(template_style_path, "w") as file:
+            file.write(updated_css_content)
+
+        index_file_path = os.path.join(template_path, "index.html")
+        style_path = f"css/{output_body_file_name}"
+        self.append_universal_style_link(index_file_path, style_path)
+
+    def append_universal_style_link(self, index_file_path, style_path):
+        try:
+            # Read the index file content
+            with open(index_file_path, "r") as index_file:
+                html_content = index_file.read()
+
+            # Parse the HTML content
+            soup = BeautifulSoup(html_content, "html.parser")
+            print(soup.prettify())
+
+            # Create a new <link> tag for the stylesheet
+            new_tag = soup.new_tag("link", rel="stylesheet", href=style_path)
+
+            # Append the new tag to the <head> section
+            head = soup.head
+            if head is not None:
+                head.append(new_tag)
+            else:
+                print("No <head> tag found in the HTML document.")
+
+            # Write the modified content back to the index file
+            with open(index_file_path, "w") as index_file:
+                index_file.write(str(soup))
+
+        except Exception as error:
+            print("Error occurred while writing the index file:", error)
+
     def post(self, request, template_name):
         if template_name:
             local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
             s3_client = s3_config()
             bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
             s3_folder_key = f"{template_name}/"
+
+            self.create_separate_universal_style(local_folder_path)
 
             try:
                 s3_client.put_object(Bucket=bucket_name, Key=s3_folder_key)
@@ -605,7 +681,7 @@ class Deployment(APIView):
     def extract_template_css(self, s3_client, template_name):
         try:
             css_response = {}
-            cssData = [{"file": "style.css"}, {"file": "responsive.css"}]
+            cssData = [{"file": "style.css"}, {"file": "responsive.css"}, {"file": "body-styles.css"}]
 
             for data in cssData:
                 response = s3_client.get_object(
@@ -617,6 +693,8 @@ class Deployment(APIView):
                     css_response["template_css"] = css
                 elif data["file"] == "responsive.css":
                     css_response["template_responsive_css"] = css
+                elif data["file"] == "body-styles.css":
+                    css_response["template_body_css"] = css
 
             return css_response
 
@@ -677,7 +755,9 @@ class Deployment(APIView):
 
         if not title and not description:
             title = customized_template_instance.portfolio_project.portfolio_title
-            description = customized_template_instance.portfolio_project.portfolio_description
+            description = (
+                customized_template_instance.portfolio_project.portfolio_description
+            )
 
         html = self.build_html(
             meta=meta_data,
@@ -718,6 +798,11 @@ class Deployment(APIView):
                 "file_content": str(css_response["template_responsive_css"]),
             },
             {
+                "file_name": "css/body-styles.css",
+                "content_type": "text/css",
+                "file_content": str(css_response["template_body_css"]),
+            },
+            {
                 "file_name": "js/script.js",
                 "content_type": "application/javascript",
                 "file_content": str(js_response["template_js"]),
@@ -744,6 +829,7 @@ class Deployment(APIView):
                     "DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID"
                 )
             )
+            print(project_name)
             deployed_url = f"{cloudfront_domain}/{project_name}/index.html"
         except Exception as error:
             print("Error occurred while building cloudfront url -> ", error)
@@ -856,4 +942,36 @@ class DeletePortfolioProject(APIView):
 
         return ApiResponse.response_succeed(
             success=True, message="Project deleted successfully", status=200
+        )
+
+
+class PortfolioDomain(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        domain_name = request.data.get("domain_name") + "." + request.data.get("tld")
+        print(domain_name)
+        route53_client = boto3.client(
+            "route53domains",
+            aws_access_key_id=os.environ.get("53_SECRET_ACCESS_KEY"),
+            aws_secret_access_key=os.environ.get("53_ACCESS_KEY"),
+            region_name="us-east-1",
+        )
+
+        try:
+            response = route53_client.check_domain_availability(DomainName=domain_name)
+            is_available = response.get("Availability")
+            print(response)
+        except Exception as error:
+            print("Error occurred while checking domain availability", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on server while checking domain availability",
+                status=500,
+                success=False,
+            )
+
+        return ApiResponse.response_succeed(
+            message="Domain is " + is_available,
+            status=200,
+            success=True,
         )
