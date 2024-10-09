@@ -5,6 +5,7 @@ from .views import (
     ListTemplates,
     ListPortfolioProject,
     UpdateCustomizeTemplate,
+    UpdateProjectImage,
     Deployment,
     DeletePortfolioProject,
     PortfolioDomain,
@@ -32,6 +33,11 @@ urlpatterns = [
         "update-dom-data/",
         UpdateCustomizeTemplate.as_view(),
         name="update_dom_data",
+    ),
+    path(
+        "update-project-image/",
+        UpdateProjectImage.as_view(),
+        name="update_project_image",
     ),
     path(
         "deploy-portfolio/",
