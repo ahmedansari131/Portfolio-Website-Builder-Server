@@ -20,7 +20,7 @@ import os
 from django.conf import settings
 import mimetypes
 from django.http import Http404
-from .utils import generate_random_number
+from .utils import generate_random_number, upload_image_on_s3_project
 import boto3
 import re
 
@@ -70,19 +70,30 @@ class Project(APIView):
                                 pre_built_template=template,
                             )
 
-                            customized_template_instance = CustomizedTemplate.objects.create(
-                                template=template,
-                                portfolio_project=project_instance,
-                                # title=template_data.get("title"),
-                                meta=template_data.get("meta"),
-                                links=template_data.get("links"),
-                                scripts=template_data.get("scripts"),
-                                body=template_data.get("body"),
-                                style=template_data.get("style"),
-                                css=template_data.get("css"),
-                                js=template_data.get("js"),
-                                sections=sections,
+                            customized_template_instance = (
+                                CustomizedTemplate.objects.create(
+                                    template=template,
+                                    portfolio_project=project_instance,
+                                    meta=template_data.get("meta"),
+                                    links=template_data.get("links"),
+                                    scripts=template_data.get("scripts"),
+                                    body=template_data.get("body"),
+                                    style=template_data.get("style"),
+                                    css=template_data.get("css"),
+                                    js=template_data.get("js"),
+                                    sections=sections,
+                                )
                             )
+
+                            s3_client = s3_config()
+                            bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+                            project_folder_name = (
+                                project_instance.project_name + "/assests/"
+                            )
+                            s3_client.put_object(
+                                Bucket=bucket_name, Key=project_folder_name
+                            )
+
                     except Exception as error:
                         print(
                             "This transaction cannot occurred due to an error -> ",
@@ -237,6 +248,8 @@ class UploadTemplate(APIView):
 
             for img in img_tags:
                 src = img.get("src")
+
+                # If image is coming from some online sources -> copying to the s3
                 if "https" in src:
                     download_assests(
                         assest_url=src,
@@ -247,6 +260,7 @@ class UploadTemplate(APIView):
                         f'https://{cloudfront_domain}/{s3_folder_name}/assests/{img.get("data-assest-id")}'
                     )
 
+                # If image is stored in local -> copying to the s3
                 if not "https" in src:
                     s3_client.copy_object(
                         Bucket=bucket_name,
@@ -552,9 +566,9 @@ class UpdateCustomizeTemplate(APIView):
 
     def post(self, request):
         data = request.data
-        customized_template_id = data.get("customized_template_id")
-        customized_template_body = data.get("body")
-        customized_template_style = data.get("style")
+        customized_template_id = data.get("customized_template_id", None)
+        customized_template_body = data.get("body", None)
+        customized_template_style = data.get("style", None)
 
         try:
             customized_template = CustomizedTemplate.objects.get(
@@ -582,6 +596,41 @@ class UpdateCustomizeTemplate(APIView):
 
         return ApiResponse.response_succeed(
             status=200, message="Success saving", success=True
+        )
+
+
+class UpdateProjectImage(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data
+        print(data)
+        customized_template_id = data.get("customized_template_id", None)
+        image_data = data.get("image", None)
+
+        if not image_data and not customized_template_id:
+            return ApiResponse.response_failed(
+                message="Data related to image is not provided",
+                status=404,
+                success=False,
+            )
+
+        uploaded = upload_image_on_s3_project(
+            image=image_data.get("image_path"),
+            project_folder_name=image_data.get("project_name"),
+            new_image_name=image_data.get("new_image_name"),
+        )
+
+        if uploaded.get("error"):
+            return ApiResponse.response_failed(
+                message=uploaded.get("message"), status=500, success=False
+            )
+
+        return ApiResponse.response_succeed(
+            message="Image uploaded successfully",
+            status=200,
+            success=True,
+            data=uploaded,
         )
 
 
@@ -681,7 +730,11 @@ class Deployment(APIView):
     def extract_template_css(self, s3_client, template_name):
         try:
             css_response = {}
-            cssData = [{"file": "style.css"}, {"file": "responsive.css"}, {"file": "body-styles.css"}]
+            cssData = [
+                {"file": "style.css"},
+                {"file": "responsive.css"},
+                {"file": "body-styles.css"},
+            ]
 
             for data in cssData:
                 response = s3_client.get_object(
