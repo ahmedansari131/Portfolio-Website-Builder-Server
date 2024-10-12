@@ -2,6 +2,12 @@ import boto3
 import os
 from server.utils.response import BaseResponse
 import requests
+from django.conf import settings
+import time
+
+
+def s3_name_format(name):
+    return name.replace(" ", "-").lower()
 
 
 def s3_config():
@@ -34,6 +40,28 @@ def get_cloudfront_domain(distribution_id):
     except Exception as e:
         print("Error occurred -> ", e)
         return None
+
+
+def invalidate_cloudfront_cache(project_name, file_name):
+    client = boto3.client(
+        "cloudfront",
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    )
+
+    distribution_id = os.environ.get("DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID")
+    # Create invalidation for paths related to this version
+    invalidation_response = client.create_invalidation(
+        DistributionId=distribution_id,
+        InvalidationBatch={
+            "Paths": {
+                "Quantity": 1,
+                "Items": [f"/{project_name}/assets/{file_name}"],
+            },
+            "CallerReference": str(time.time()).replace(".", ""),
+        },
+    )
+    return invalidation_response
 
 
 def download_assests(assest_url, s3_template_name, assest_name):
