@@ -9,6 +9,7 @@ from .views import (
     Deployment,
     DeletePortfolioProject,
     PortfolioDomain,
+    PortfolioEmailSend,
 )
 
 urlpatterns = [
@@ -53,6 +54,11 @@ urlpatterns = [
         "delete-project/<str:project_id>/",
         DeletePortfolioProject.as_view(),
         name="delete_project",
+    ),
+    path(
+        "send-portfolio-email/",
+        PortfolioEmailSend.as_view(),
+        name="send_portfolio_email",
     ),
     path(
         "check-domain-availability/",
