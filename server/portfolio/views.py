@@ -3,7 +3,12 @@ from server.response.api_response import ApiResponse
 from rest_framework.views import APIView
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from bs4 import BeautifulSoup
-from server.utils.s3 import s3_config, get_cloudfront_domain, download_assests
+from server.utils.s3 import (
+    s3_config,
+    get_cloudfront_domain,
+    download_assests,
+    s3_name_format,
+)
 import json
 from .serializers import (
     CreateProjectSerializer,
@@ -87,8 +92,11 @@ class Project(APIView):
 
                             s3_client = s3_config()
                             bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+                            s3_formatted_project_name = s3_name_format(
+                                project_instance.project_name
+                            )
                             project_folder_name = (
-                                project_instance.project_name + "/assests/"
+                                s3_formatted_project_name + "/assests/"
                             )
                             s3_client.put_object(
                                 Bucket=bucket_name, Key=project_folder_name
@@ -440,6 +448,7 @@ class UploadTemplate(APIView):
 
     def post(self, request, template_name):
         if template_name:
+            template_name = s3_name_format(template_name)
             local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
             s3_client = s3_config()
             bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
@@ -604,11 +613,13 @@ class UpdateProjectImage(APIView):
 
     def post(self, request):
         data = request.data
-        print(data)
-        customized_template_id = data.get("customized_template_id", None)
-        image_data = data.get("image", None)
 
-        if not image_data and not customized_template_id:
+        image = request.FILES.get("image_path", None)
+        project_name = data.get("project_name", None)
+        new_image_name = data.get("new_image_name", None)
+        content_type = data.get("type", None)
+
+        if not image and not project_name and not new_image_name:
             return ApiResponse.response_failed(
                 message="Data related to image is not provided",
                 status=404,
@@ -616,9 +627,10 @@ class UpdateProjectImage(APIView):
             )
 
         uploaded = upload_image_on_s3_project(
-            image=image_data.get("image_path"),
-            project_folder_name=image_data.get("project_name"),
-            new_image_name=image_data.get("new_image_name"),
+            image=image,
+            project_folder_name=s3_name_format(project_name),
+            new_image_name=new_image_name,
+            content_type=content_type,
         )
 
         if uploaded.get("error"):
