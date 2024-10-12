@@ -28,10 +28,42 @@ from django.http import Http404
 from .utils import generate_random_number, upload_image_on_s3_project
 import boto3
 import re
+from server.email import BaseEmail
 
 
 class Project(APIView):
     permission_classes = [IsAuthenticated]
+
+    def configure_user_contact_form(self, user_email, project_name, template_name):
+        s3_formatted_template_name = s3_name_format(template_name)
+        s3_formatted_project_name = s3_name_format(project_name)
+        TEMPLATE_JS_OBJECT_KEY = f"{s3_formatted_template_name}/js/email.js"
+        PROJECT_JS_OBJECT_KEY = f"{s3_formatted_project_name}/js/email.js"
+        s3_client = s3_config()
+        response = s3_client.get_object(
+            Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME, Key=TEMPLATE_JS_OBJECT_KEY
+        )
+        js_code = (
+            response["Body"].read().decode("utf-8")
+        )  # Read and decode the JS content
+
+        # Step 2: Replace the placeholder with the actual email
+        modified_js_code = js_code.replace("{{USER_EMAIL}}", user_email, 1)
+
+        # Step 3: Upload the modified JS file back to S3
+        s3_client.put_object(
+            Bucket=settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME,
+            Key=PROJECT_JS_OBJECT_KEY,
+            Body=modified_js_code,
+            ContentType="application/javascript",
+        )
+
+    def create_assests_on_s3(self, project_name):
+        s3_client = s3_config()
+        bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+        s3_formatted_project_name = s3_name_format(project_name)
+        project_folder_name = s3_formatted_project_name + "/assests/"
+        s3_client.put_object(Bucket=bucket_name, Key=project_folder_name)
 
     def get_section(self, template_data):
         sections = []
@@ -42,6 +74,8 @@ class Project(APIView):
 
     def post(self, request):
         data = request.data
+        print(request.user)
+        print(request.user.email)
         try:
             serializer = CreateProjectSerializer(data=data)
             if serializer.is_valid(raise_exception=True):
@@ -90,18 +124,13 @@ class Project(APIView):
                                 )
                             )
 
-                            s3_client = s3_config()
-                            bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
-                            s3_formatted_project_name = s3_name_format(
-                                project_instance.project_name
+                            project_name = project_instance.project_name
+                            self.create_assests_on_s3(project_name=project_name)
+                            self.configure_user_contact_form(
+                                user_email=request.user.email,
+                                project_name=project_name,
+                                template_name=customized_template_instance.template.template_name,
                             )
-                            project_folder_name = (
-                                s3_formatted_project_name + "/assests/"
-                            )
-                            s3_client.put_object(
-                                Bucket=bucket_name, Key=project_folder_name
-                            )
-
                     except Exception as error:
                         print(
                             "This transaction cannot occurred due to an error -> ",
@@ -832,7 +861,8 @@ class Deployment(APIView):
             title=title,
             description=description,
         )
-        custom_css = self.convert_json_to_css(style[0])
+        print("STYLE -> ", style)
+        custom_css = self.convert_json_to_css([style][0]) or "{}"
 
         s3_client = s3_config()
 
@@ -846,6 +876,7 @@ class Deployment(APIView):
         merged_css = css_response["template_css"] + "\n" + custom_css
 
         bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+        project_name = s3_name_format(project_name)
         content_to_upload = [
             {
                 "file_name": "index.html",
@@ -1039,4 +1070,44 @@ class PortfolioDomain(APIView):
             message="Domain is " + is_available,
             status=200,
             success=True,
+        )
+
+
+class PortfolioEmailSend(APIView):
+    def post(self, request):
+        user_email = request.data.get("user")
+        contact_name = request.data.get("contact_name")
+        contact_message = request.data.get("contact_message")
+        contact_email = request.data.get("contact_email")
+        if (
+            not user_email
+            and not contact_name
+            and not contact_message
+            and not contact_email
+        ):
+            return ApiResponse.response_failed(
+                message="Data is not provided", status=404, success=False
+            )
+
+        try:
+            user_contact_email = BaseEmail(
+                sender=os.environ.get("PORTFOLIO_SENDER_EMAIL"),
+                recipient=user_email,
+                subject=f"New message from {contact_name}",
+                message="New message",
+                template_path="email_templates/portfolio_contact_email.html",
+                content={
+                    "message": contact_message,
+                    "email": contact_email,
+                    "name": contact_name,
+                },
+            )
+            user_contact_email.send_email()
+        except Exception as error:
+            print("Error occurred while sending an email", error)
+            return ApiResponse.response_failed(
+                message="Error occurred while sending email", success=False, status=500
+            )
+        return ApiResponse.response_succeed(
+            message="Email sent successfully", status=200, success=True
         )
