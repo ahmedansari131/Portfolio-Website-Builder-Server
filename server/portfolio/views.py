@@ -74,8 +74,6 @@ class Project(APIView):
 
     def post(self, request):
         data = request.data
-        print(request.user)
-        print(request.user.email)
         try:
             serializer = CreateProjectSerializer(data=data)
             if serializer.is_valid(raise_exception=True):
