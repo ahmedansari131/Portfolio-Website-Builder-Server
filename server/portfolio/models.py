@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from django.utils.text import slugify
 
 
 User = settings.AUTH_USER_MODEL
@@ -23,6 +24,7 @@ class Template(models.Model):
 
 class PortfolioProject(models.Model):
     project_name = models.CharField(max_length=50, unique=True)
+    project_slug = models.SlugField(unique=True, blank=True)
     portfolio_title = models.CharField(max_length=50, default="Portfolio")
     portfolio_description = models.TextField(blank=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -39,6 +41,9 @@ class PortfolioProject(models.Model):
 
     def save(self, *args, **kwargs):
         # Propagate the deletion to the related CustomizedTemplate
+        if not self.project_slug:
+            self.project_slug = slugify(self.project_name)
+
         if self.is_deleted:
             customized_template = getattr(self, "customizedtemplate", None)
             if customized_template:
