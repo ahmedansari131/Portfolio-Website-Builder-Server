@@ -105,6 +105,7 @@ class Project(APIView):
                                 ),
                                 created_by=request.user,
                                 pre_built_template=template,
+                                portofolio_contact_configured_email=request.user.email,
                             )
 
                             customized_template_instance = (
