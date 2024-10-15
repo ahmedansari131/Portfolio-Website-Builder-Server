@@ -28,29 +28,6 @@ class ListTemplatesSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class TemplateDataSerializer(serializers.ModelSerializer):
-    cloudfront_domain = serializers.SerializerMethodField()
-    is_deployed = serializers.SerializerMethodField()
-
-    class Meta:
-        model = CustomizedTemplate
-        fields = "__all__"
-
-    def get_cloudfront_domain(self, obj):
-        return get_cloudfront_domain(
-            os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-        )
-
-    def get_is_deployed(self, obj):
-        return obj.portfolio_project.is_deployed
-    
-
-class CustomizedTemplateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CustomizedTemplate
-        fields = '__all__'
-
-
 class ListPortfolioProjectSerializer(serializers.ModelSerializer):
     created_by = UserSerializer()
     customized_template_id = serializers.SerializerMethodField()
@@ -73,3 +50,28 @@ class ListPortfolioProjectSerializer(serializers.ModelSerializer):
             return template_name.template.template_name
         except CustomizedTemplate.DoesNotExist:
             return None
+
+
+class CustomizedTemplateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = CustomizedTemplate
+        fields = "__all__"
+
+
+class TemplateDataSerializer(serializers.ModelSerializer):
+    cloudfront_domain = serializers.SerializerMethodField()
+    portfolio_project = ListPortfolioProjectSerializer()
+    is_deployed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomizedTemplate
+        fields = "__all__"
+
+    def get_cloudfront_domain(self, obj):
+        return get_cloudfront_domain(
+            os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
+        )
+
+    def get_is_deployed(self, obj):
+        return obj.portfolio_project.is_deployed
