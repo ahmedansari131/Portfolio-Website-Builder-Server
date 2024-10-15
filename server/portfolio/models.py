@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.utils.text import slugify
+from django.core.validators import EmailValidator
 
 
 User = settings.AUTH_USER_MODEL
@@ -31,6 +32,12 @@ class PortfolioProject(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_deployed = models.BooleanField(default=False)
     deployed_url = models.URLField(default="")
+    portofolio_contact_configured_email = models.EmailField(
+        max_length=254,
+        blank=True,
+        validators=[EmailValidator(message="Please enter a valid email address.")],
+    )
+    is_verified_portfolio_contact_email = models.BooleanField(default=False)
     custom_domain_name = models.CharField(
         max_length=255, blank=True, null=True, default=""
     )
