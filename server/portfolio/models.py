@@ -7,6 +7,11 @@ from django.core.validators import EmailValidator
 User = settings.AUTH_USER_MODEL
 
 
+class ActivePortfolioProjectManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class Template(models.Model):
     template_name = models.CharField(max_length=50, unique=True)
     template_preview = models.URLField(blank=True, null=True)
@@ -45,6 +50,9 @@ class PortfolioProject(models.Model):
         Template, on_delete=models.CASCADE, null=True
     )
     is_deleted = models.BooleanField(default=False, null=True)
+
+    objects = ActivePortfolioProjectManager()  # Default manager
+    all_objects = models.Manager()  # Fallback to access all, including deleted
 
     def save(self, *args, **kwargs):
         # Propagate the deletion to the related CustomizedTemplate
