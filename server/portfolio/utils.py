@@ -9,6 +9,15 @@ from django.conf import settings
 from server.utils.response import BaseResponse
 import os
 from botocore.exceptions import ClientError
+from rest_framework.exceptions import NotFound, PermissionDenied
+from django.shortcuts import get_object_or_404
+
+
+def get_object_or_404_with_permission(view, queryset, pk):
+    obj = get_object_or_404(queryset, pk=pk)
+    view.check_object_permissions(view.request, obj)
+
+    return obj
 
 
 def generate_random_number(digits=6):
@@ -57,7 +66,9 @@ def upload_image_on_s3_project(
             image_s3_path,
             ExtraArgs={"ContentType": image.content_type},
         )
-        invalidate_cloudfront_cache(project_name=project_folder_name, file_name=new_image_name+file_extension)
+        invalidate_cloudfront_cache(
+            project_name=project_folder_name, file_name=new_image_name + file_extension
+        )
         distribution_id = os.environ.get("DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID")
         url = f"https://{get_cloudfront_domain(distribution_id=distribution_id)}/{image_s3_path}"
         return {"image_s3_url": url}
