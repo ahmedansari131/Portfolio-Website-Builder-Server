@@ -4,6 +4,8 @@ from authentication.serializers import UserSerializer
 from server.utils.response import BaseResponse
 from server.utils.s3 import get_cloudfront_domain
 import os
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 
 
 class CreateProjectSerializer(serializers.ModelSerializer):
@@ -15,7 +17,8 @@ class CreateProjectSerializer(serializers.ModelSerializer):
         fields = ["project_name", "template_name"]
 
     def validate_project_name(self, value):
-        if PortfolioProject.objects.filter(project_name=value).exists():
+        if PortfolioProject.all_objects.filter(project_name=value).exists():
+            print(PortfolioProject.all_objects.filter(project_name=value))
             return BaseResponse.error(message="Project with this name already exists")
         return value
 
@@ -39,6 +42,7 @@ class ListPortfolioProjectSerializer(serializers.ModelSerializer):
 
     def get_customized_template_id(self, obj):
         try:
+            print(obj)
             customized_template = CustomizedTemplate.objects.get(portfolio_project=obj)
             return customized_template.id
         except CustomizedTemplate.DoesNotExist:
@@ -75,3 +79,17 @@ class TemplateDataSerializer(serializers.ModelSerializer):
 
     def get_is_deployed(self, obj):
         return obj.portfolio_project.is_deployed
+
+
+class PortfolioContactEmailSerializer(serializers.Serializer):
+    portfolio_contact_configured_email = serializers.EmailField(required=True)
+    is_verified_portfolio_contact_email = serializers.BooleanField(default=False)
+
+    def validate_portfolio_contact_configured_email(self, value):
+        if not value:
+            raise serializers.ValidationError("Please provide email address.")
+        try:
+            validate_email(value)
+        except ValidationError:
+            raise serializers.ValidationError("Invalid email address.")
+        return value  # Return the valid email if no exception
