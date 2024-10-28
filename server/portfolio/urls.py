@@ -5,12 +5,14 @@ from .views import (
     ListTemplates,
     ListPortfolioProject,
     UpdateCustomizeTemplate,
-    UpdateProjectImage,
+    UpdateProjectImageOrDocument,
     Deployment,
     DeletePortfolioProject,
     PortfolioDomain,
     PortfolioEmailSend,
+    SendPortfolioContactEmailVerificationEmail,
 )
+from authentication.views import UserEmailVerification
 
 urlpatterns = [
     path("create-project/", Project.as_view(), name="create_project"),
@@ -37,7 +39,7 @@ urlpatterns = [
     ),
     path(
         "update-project-image/",
-        UpdateProjectImage.as_view(),
+        UpdateProjectImageOrDocument.as_view(),
         name="update_project_image",
     ),
     path(
@@ -54,6 +56,11 @@ urlpatterns = [
         "delete-project/<str:project_id>/",
         DeletePortfolioProject.as_view(),
         name="delete_project",
+    ),
+    path(
+        "send-portfolio-verification-email/",
+        SendPortfolioContactEmailVerificationEmail.as_view(),
+        name="send_portfolio_contact_email",
     ),
     path(
         "send-portfolio-email/",
