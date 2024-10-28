@@ -37,7 +37,7 @@ class PortfolioProject(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_deployed = models.BooleanField(default=False)
     deployed_url = models.URLField(default="")
-    portofolio_contact_configured_email = models.EmailField(
+    portfolio_contact_configured_email = models.EmailField(
         max_length=254,
         blank=True,
         validators=[EmailValidator(message="Please enter a valid email address.")],
@@ -89,3 +89,11 @@ class CustomizedTemplate(models.Model):
 
     def __str__(self):
         return f"Custom Template Id: {self.id}"
+
+
+# Proxy model for deleted projects
+class DeletedPortfolioProject(PortfolioProject):
+    class Meta:
+        proxy = True
+        verbose_name = "Deleted Project"
+        verbose_name_plural = "Deleted Projects"
