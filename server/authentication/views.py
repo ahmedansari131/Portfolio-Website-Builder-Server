@@ -24,7 +24,6 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
-from rest_framework_simplejwt.tokens import UntypedToken
 from datetime import datetime, timedelta, timezone
 
 
@@ -135,30 +134,12 @@ class UserEmailVerification(APIView):
         verification_token = request.GET.get("token")
         if verification_token:
             tokenization = Token()
-            decoded_token = tokenization.verify_token(verification_token)
-
-            if isinstance(decoded_token, dict) and "id" in decoded_token:
-                try:
-                    user = User.objects.get(id=decoded_token["id"])
-                    user.is_active = True
-                    user.save()
-
-                    return ApiResponse.response_succeed(
-                        message=f"{user.username} is verified and can login.",
-                        status=200,
-                    )
-                except Exception as error:
-                    return ApiResponse.response_failed(
-                        message="Error occurred while saving verified user", status=500
-                    )
-            elif isinstance(decoded_token, str):
-                return ApiResponse.response_failed(message=decoded_token, status=403)
-            else:
-                return ApiResponse.response_failed(message=decoded_token, status=500)
-        else:
-            return ApiResponse.response_failed(
-                message="Failed to get token", status=404
-            )
+            verification = tokenization.verify_token(verification_token)
+            if verification:
+                return ApiResponse.response_succeed(
+                    message=verification, success=True, status=200
+                )
+        return ApiResponse.response_failed(message="Failed to get token", status=404)
 
 
 class UserLogin(APIView):
