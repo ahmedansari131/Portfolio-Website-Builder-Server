@@ -28,7 +28,7 @@ from django.conf import settings
 import mimetypes
 from django.http import Http404
 from .utils import (
-    generate_random_number,
+    generate_random_characters,
     upload_project_file_on_s3_project,
     get_object_or_404_with_permission,
 )
@@ -219,16 +219,16 @@ class UploadTemplate(APIView):
             if elem.has_attr("class"):
                 # Append the new class to the list of existing classes
                 elem["class"].append(
-                    "portify-class-" + generate_random_number(digits=8)
+                    "portify-class-" + generate_random_characters(digits=8)
                 )
             else:
                 # Set a new class if none exists
-                elem["class"] = ["portify-class-" + generate_random_number(digits=8)]
+                elem["class"] = ["portify-class-" + generate_random_characters(digits=8)]
             return elem
 
     def assign_unique_id(self, elem):
         if elem:
-            elem["data-assest-id"] = generate_random_number(digits=8)
+            elem["data-assest-id"] = generate_random_characters(digits=8)
             return elem
 
     def extract_element(self, dom, tag_name):
