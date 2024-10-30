@@ -20,9 +20,8 @@ def get_object_or_404_with_permission(view, queryset, pk):
     return obj
 
 
-def generate_random_number(digits=6):
+def generate_random_characters(digits=6):
     characters = string.ascii_letters + string.digits
-
     random_string = "".join(random.choice(characters) for _ in range(digits))
     return random_string
 
