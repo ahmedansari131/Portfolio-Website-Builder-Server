@@ -1,8 +1,10 @@
 from portfolio.utils import generate_random_characters
 from portfolio.constants import (
     ELEMENT_DEFAULT_CLASS_NAME,
-    DATA_ASSET_ID_ATTR,
-    ELEMENT_IDENTIFIER,
+    ASSET_ID_VALUE,
+    ASSET_ID_PREFIX,
+    ELEMENT_IDENTIFIER_PREFIX,
+    ELEMENT_IDENTIFIER_VALUE,
 )
 
 
@@ -23,18 +25,18 @@ def assign_class_name(elem):
 def assign_asset_id(elem):
     if elem:
         created_asset_id = (
-            f"{DATA_ASSET_ID_ATTR}-{generate_random_characters(digits=8)}".lower()
+            f"{ASSET_ID_VALUE}-{generate_random_characters(digits=8)}".lower()
         )
 
-        elem[DATA_ASSET_ID_ATTR] = created_asset_id
+        elem[ASSET_ID_PREFIX] = created_asset_id
         return elem
 
 
 def assign_identifier(elem):
     if elem:
         created_element_identifier = (
-            f"{ELEMENT_IDENTIFIER}-{generate_random_characters(digits=8)}".lower()
+            f"{ELEMENT_IDENTIFIER_VALUE}-{generate_random_characters(digits=8)}".lower()
         )
 
-        elem[ELEMENT_IDENTIFIER] = created_element_identifier
+        elem[ELEMENT_IDENTIFIER_PREFIX] = created_element_identifier
         return elem

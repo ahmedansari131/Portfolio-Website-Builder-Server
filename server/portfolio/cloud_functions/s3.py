@@ -3,7 +3,7 @@ from server.utils.response import BaseResponse
 from server.utils.s3 import get_cloudfront_domain, s3_config, download_assets
 from portfolio.dom_manipulation.element_attr import assign_asset_id
 from portfolio.constants import (
-    DATA_ASSET_ID_ATTR,
+    ASSET_ID_PREFIX,
     S3_ASSETS_FOLDER_NAME,
     S3_CSS_FOLDER_NAME,
     S3_JS_FOLDER_NAME,
@@ -38,8 +38,11 @@ class AWS_S3_Service:
                 if a.get("download"):
                     href = a.get("href")
                     a = assign_asset_id(a)
+                    asset_name = a.get(ASSET_ID_PREFIX)
                     old_s3_asset_key = f'{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{href.split("/")[-1]}'
-                    new_s3_asset_key = f"{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{a.get(DATA_ASSET_ID_ATTR)}"
+                    new_s3_asset_key = (
+                        f"{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
+                    )
 
                     self.s3_client.copy_object(
                         Bucket=self.bucket_name,
@@ -51,11 +54,9 @@ class AWS_S3_Service:
                     )
 
                     if self.domain_name:
-                        anchor_path = (
-                            f"{S3_ASSETS_FOLDER_NAME}/{a.get(DATA_ASSET_ID_ATTR)}"
-                        )
+                        anchor_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
                     else:
-                        anchor_path = f"https://{self.template_cloudfront_domain}/{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{a.get(DATA_ASSET_ID_ATTR)}"
+                        anchor_path = f"https://{self.template_cloudfront_domain}/{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
 
                     a["href"] = anchor_path
             return True
@@ -66,7 +67,7 @@ class AWS_S3_Service:
         if img_tags:
             for img in img_tags:
                 src = img.get("src")
-                asset_name = img.get(DATA_ASSET_ID_ATTR)
+                asset_name = img.get(ASSET_ID_PREFIX)
 
                 # If image is coming from some online sources -> copying to the s3
                 if "https" in src:
