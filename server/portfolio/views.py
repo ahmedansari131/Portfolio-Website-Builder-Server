@@ -2,12 +2,9 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .permissions import IsOwner
 from server.response.api_response import ApiResponse
 from rest_framework.views import APIView
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from bs4 import BeautifulSoup
 from server.utils.s3 import (
     s3_config,
-    get_cloudfront_domain,
-    download_assests,
     s3_name_format,
 )
 import json
@@ -21,20 +18,21 @@ from .serializers import (
 )
 from .models import PortfolioProject, CustomizedTemplate, Template
 from django.shortcuts import get_object_or_404
-from server.utils.response import BaseResponse
 from django.db import transaction
 import os
 from django.conf import settings
-import mimetypes
 from django.http import Http404
 from .utils import (
-    generate_random_characters,
     upload_project_file_on_s3_project,
     get_object_or_404_with_permission,
 )
 import boto3
-import re
 from server.email import BaseEmail
+from portfolio.cloud_functions.s3 import AWS_S3_Service
+from portfolio.dom_manipulation.handle_styles import (
+    create_separate_universal_style,
+)
+from portfolio.exceptions.exceptions import GeneralError, DataNotPresent
 
 
 class Project(APIView):
@@ -182,331 +180,48 @@ class Project(APIView):
 class UploadTemplate(APIView):
     permission_classes = [IsAdminUser]
 
-    def build_dom_tree(self, elem):
-        if not elem:
-            return None
-
-        if (
-            not elem.name == "meta"
-            and not elem.name == "link"
-            and not elem.name == "title"
-            and not elem.name == "style"
-            and not elem.name == "script"
-        ):
-            elem = self.assign_class_name(elem)
-
-        if elem.name == "img":
-            elem = self.assign_unique_id(elem)
-
-        dom_tree = {
-            "tag": elem.name,
-            "attributes": elem.attrs if elem.attrs else {},
-            "text": elem.string.strip() if elem.string else "",
-            "children": [],
-        }
-
-        for child in elem.contents:
-            if isinstance(child, str):
-                if dom_tree["text"] == "":
-                    dom_tree["text"] += child.strip()
-            elif child.name is not None:
-                dom_tree["children"].append(self.build_dom_tree(child))
-        return dom_tree
-
-    def assign_class_name(self, elem):
-        if elem:
-            # Check if the element has a "class" attribute
-            if elem.has_attr("class"):
-                # Append the new class to the list of existing classes
-                elem["class"].append(
-                    "portify-class-" + generate_random_characters(digits=8)
-                )
-            else:
-                # Set a new class if none exists
-                elem["class"] = ["portify-class-" + generate_random_characters(digits=8)]
-            return elem
-
-    def assign_unique_id(self, elem):
-        if elem:
-            elem["data-assest-id"] = generate_random_characters(digits=8)
-            return elem
-
-    def extract_element(self, dom, tag_name):
-        tag = dom.find_all(tag_name)
-        if tag:
-            return tag
-        else:
-            return ""
-
-    def handle_anchor(self, anchor_tags, s3_folder_name, bucket_name, s3_client):
-        if anchor_tags:
-            if isinstance(s3_client, str):
-                return BaseResponse.error(message=s3_client.get("message"))
-
-            cloudfront_domain = get_cloudfront_domain(
-                os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-            )
-
-            for a in anchor_tags:
-                if a.get("download"):
-                    href = a.get("href")
-                    a = self.assign_unique_id(a)
-                    s3_client.copy_object(
-                        Bucket=bucket_name,
-                        CopySource={
-                            "Bucket": bucket_name,
-                            "Key": f'{s3_folder_name}/assests/{href.split("/")[-1]}',  # Old key
-                        },
-                        Key=f'{s3_folder_name}/assests/{a.get("data-assest-id")}',  # New key
-                    )
-                    a["href"] = (
-                        f'https://{cloudfront_domain}/{s3_folder_name}/assests/{a.get("data-assest-id")}'
-                    )
-            return True
-        else:
-            return BaseResponse.error(message="Some error occurred")
-
-    def handle_image_source(self, img_tags, s3_folder_name, bucket_name, s3_client):
-        if img_tags:
-            if isinstance(s3_client, str):
-                return BaseResponse.error(message=s3_client.get("message"))
-
-            cloudfront_domain = get_cloudfront_domain(
-                os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-            )
-
-            for img in img_tags:
-                src = img.get("src")
-
-                # If image is coming from some online sources -> copying to the s3
-                if "https" in src:
-                    download_assests(
-                        assest_url=src,
-                        s3_template_name=s3_folder_name,
-                        assest_name=img.get("data-assest-id"),
-                    )
-                    img["src"] = (
-                        f'https://{cloudfront_domain}/{s3_folder_name}/assests/{img.get("data-assest-id")}'
-                    )
-
-                # If image is stored in local -> copying to the s3
-                if not "https" in src:
-                    s3_client.copy_object(
-                        Bucket=bucket_name,
-                        CopySource={
-                            "Bucket": bucket_name,
-                            "Key": f'{s3_folder_name}/assests/{src.split("/")[-1]}',  # Old key
-                        },
-                        Key=f'{s3_folder_name}/assests/{img.get("data-assest-id")}',  # New key
-                    )
-                    img["src"] = (
-                        f'https://{cloudfront_domain}/{s3_folder_name}/assests/{img.get("data-assest-id")}'
-                    )
-            return True
-        else:
-            return BaseResponse.error(message="Some error occurred")
-
-    def get_template_from_s3(self, folder_name, file_name, bucket_name):
-        bucket_name = bucket_name
-        file_key = folder_name + "/" + file_name
-        css_file_key = f"{folder_name}/css"
-        js_file_key = f"{folder_name}/js"
-
+    def check_template_presence(self, template_name):
         try:
-            s3_client = s3_config()
-            index_response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
-            css_response = s3_client.list_objects_v2(
-                Bucket=bucket_name, Prefix=css_file_key
-            )
-            js_response = s3_client.list_objects_v2(
-                Bucket=bucket_name, Prefix=js_file_key
-            )
-        except NoCredentialsError:
-            return BaseResponse.error(message="Credentials not available")
-        except PartialCredentialsError:
-            return BaseResponse.error(message="Incomplete credentials")
-        except s3_client.exceptions.NoSuchKey:
-            return BaseResponse.error(message="File not found")
+            template_instance = Template.objects.get(template_name=template_name)
+            return template_instance
+        except Template.DoesNotExist:
+            raise DataNotPresent(f"{template_name} is not present in db")
         except Exception as error:
-            return BaseResponse.error(message=str(error))
-
-        html_content = index_response["Body"].read().decode("utf-8")
-        css = [obj["Key"] for obj in css_response.get("Contents", [])]
-        js = [obj["Key"] for obj in js_response.get("Contents", [])]
-
-        soup = BeautifulSoup(html_content, "html.parser")
-        tags = ["meta", "link", "title", "style", "body", "script"]
-        dom_tree_json = {}
-
-        for tag in tags:
-            elements = self.extract_element(soup, tag)
-            if elements:
-                if tag not in dom_tree_json:
-                    dom_tree_json[tag] = []
-                for element in elements:
-                    dom_tree_json[tag].append(self.build_dom_tree(element))
-
-        img_tags = soup.find_all("img")
-        image_response = self.handle_image_source(
-            img_tags=img_tags,
-            s3_folder_name=folder_name,
-            bucket_name=bucket_name,
-            s3_client=s3_client,
-        )
-        if not image_response:
-            return BaseResponse.error(message=image_response.get("message"))
-
-        anchor_tags = soup.find_all("a")
-        anchor_response = self.handle_anchor(
-            anchor_tags=anchor_tags,
-            s3_folder_name=folder_name,
-            bucket_name=bucket_name,
-            s3_client=s3_client,
-        )
-        if not anchor_response:
-            return BaseResponse.error(message=anchor_response.get("message"))
-
-        return {"dom_tree": dom_tree_json, "css": css, "js": js}
-
-    def get_dom_elements_data(self, s3_folder_name, s3_file_name, bucket_name):
-        s3_template_data = self.get_template_from_s3(
-            s3_folder_name, s3_file_name, bucket_name
-        )
-
-        dom_tree = s3_template_data.get("dom_tree")
-        css_path = s3_template_data.get("css")
-        js_path = s3_template_data.get("js")
-        if dom_tree:
-            title = dom_tree.get("title") or {}
-            meta = dom_tree.get("meta") or {}
-            links = dom_tree.get("link") or {}
-            scripts = dom_tree.get("script") or {}
-            style = dom_tree.get("style") or {}
-            body = dom_tree.get("body") or {}
-            return {
-                "title": title,
-                "meta": meta,
-                "links": links,
-                "scripts": scripts,
-                "style": style,
-                "css": css_path,
-                "js": js_path,
-                "body": body,
-            }
-        return {}
-
-    def create_separate_universal_style(self, template_path):
-        # Read the existing CSS file
-        template_style_path = os.path.join(template_path, "css", "style.css")
-        with open(template_style_path, "r") as file:
-            css_content = file.read()
-
-        # Extract body styles using regex
-        universal_styles = re.findall(r"\*\s*{(.*?)\}", css_content, re.DOTALL)
-        body_styles = re.findall(r"body\s*{(.*?)\}", css_content, re.DOTALL)
-
-        # Create a new CSS file for body styles
-        output_body_file_name = "body-styles.css"
-        output_body_style_path = os.path.join(
-            template_path, "css", output_body_file_name
-        )
-        if body_styles:
-            with open(output_body_style_path, "w") as body_file:
-                # Write universal styles if found
-                if universal_styles:
-                    body_file.write(f"* {{\n{universal_styles[0].strip()}\n}}\n\n")
-
-                # Write body styles if found
-                if body_styles:
-                    body_file.write(f"body {{\n{body_styles[0].strip()}\n}}")
-
-        # Remove the extracted styles from the original CSS content
-        updated_css_content = css_content
-        if universal_styles:
-            updated_css_content = re.sub(
-                r"\*\s*{.*?}\s*", "", updated_css_content, flags=re.DOTALL
+            print(
+                "Error occurred while checking the template availablility in db -> ",
+                error,
             )
-
-        if body_styles:
-            updated_css_content = re.sub(
-                r"body\s*{.*?}\s*", "", updated_css_content, flags=re.DOTALL
+            raise GeneralError(
+                f"Error occurred while processing the template {template_name}"
             )
-
-        # Write the updated CSS back to style.css
-        with open(template_style_path, "w") as file:
-            file.write(updated_css_content)
-
-        index_file_path = os.path.join(template_path, "index.html")
-        style_path = f"css/{output_body_file_name}"
-        self.append_universal_style_link(index_file_path, style_path)
-
-    def append_universal_style_link(self, index_file_path, style_path):
-        try:
-            # Read the index file content
-            with open(index_file_path, "r") as index_file:
-                html_content = index_file.read()
-
-            # Parse the HTML content
-            soup = BeautifulSoup(html_content, "html.parser")
-            print(soup.prettify())
-
-            # Create a new <link> tag for the stylesheet
-            new_tag = soup.new_tag("link", rel="stylesheet", href=style_path)
-
-            # Append the new tag to the <head> section
-            head = soup.head
-            if head is not None:
-                head.append(new_tag)
-            else:
-                print("No <head> tag found in the HTML document.")
-
-            # Write the modified content back to the index file
-            with open(index_file_path, "w") as index_file:
-                index_file.write(str(soup))
-
-        except Exception as error:
-            print("Error occurred while writing the index file:", error)
 
     def post(self, request, template_name):
         if template_name:
-            template_name = s3_name_format(template_name)
-            local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
-            s3_client = s3_config()
-            bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
-            s3_folder_key = f"{template_name}/"
+            try:
+                if self.check_template_presence(template_name=template_name):
+                    return ApiResponse.response_failed(
+                        message=f"Template with the name '{template_name}' is already exist.",
+                        success=False,
+                        status=400,
+                    )
+            except DataNotPresent:
+                pass
+            except Exception as error:
+                return ApiResponse.response_failed(
+                    message=str(error), success=False, status=500
+                )
 
-            self.create_separate_universal_style(local_folder_path)
+            template_name = s3_name_format(template_name)
+            bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
+            local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
 
             try:
-                s3_client.put_object(Bucket=bucket_name, Key=s3_folder_key)
-
-                for root, _, files in os.walk(local_folder_path):
-                    for file_name in files:
-                        local_file_path = os.path.join(root, file_name)
-                        s3_key = s3_folder_key + os.path.relpath(
-                            local_file_path, local_folder_path
-                        )
-                        s3_key = s3_key.replace(
-                            "\\", "/"
-                        )  # Ensure forward slashes in S3 key
-
-                        content_type, _ = mimetypes.guess_type(local_file_path)
-                        if not content_type:
-                            content_type = "application/octet-stream"
-
-                        with open(local_file_path, "rb") as file_data:
-                            s3_client.upload_fileobj(
-                                file_data,
-                                bucket_name,
-                                s3_key,
-                                ExtraArgs={"ContentType": content_type},
-                            )
-
-                dom_elements_data = self.get_dom_elements_data(
-                    s3_folder_name=template_name,
-                    s3_file_name="index.html",
-                    bucket_name=bucket_name,
+                aws_s3_object = AWS_S3_Service(
+                    bucket_name=bucket_name, template_name=template_name
                 )
+                create_separate_universal_style(local_folder_path)
+                aws_s3_object.upload_template_on_s3()
+                dom_elements_data = aws_s3_object.get_dom_elements_data()
 
                 if not dom_elements_data:
                     return ApiResponse.response_failed(
@@ -514,24 +229,17 @@ class UploadTemplate(APIView):
                         status=500,
                     )
 
-                cloudfront_domain = get_cloudfront_domain(
-                    os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-                )
-
-                template_cloudfront_url = (
-                    f"https://{cloudfront_domain}/{s3_folder_key}index.html"
-                )
-                template_preview_cloudfront_url = (
-                    f"https://{cloudfront_domain}/{s3_folder_key}assests/preview.png"
+                template_url, template_preview_url = (
+                    aws_s3_object.create_template_url().values()
                 )
 
                 Template.objects.create(
                     template_name=template_name,
-                    template_url=template_cloudfront_url,
-                    template_preview=template_preview_cloudfront_url,
+                    template_url=template_url,
+                    template_preview=template_preview_url,
                     template_dom_tree=dom_elements_data,
                     bucket_name=bucket_name,
-                    cloudfront_domain=cloudfront_domain,
+                    cloudfront_domain=aws_s3_object.template_cloudfront_domain,
                     created_by=request.user,
                 )
 
@@ -539,10 +247,28 @@ class UploadTemplate(APIView):
                     message="Template uploaded successfully",
                     status=201,
                 )
+            except DataNotPresent as error:
+                return ApiResponse.response_failed(
+                    message=str(error), status=400, success=False
+                )
+            except GeneralError as error:
+                return ApiResponse.response_failed(
+                    message=str(error), status=500, success=False
+                )
             except Exception as error:
-                return ApiResponse.response_failed(message=str(error), status=400)
+                aws_s3_object.delete_template_from_s3()
+                print(
+                    "Error occurred on server while uploading the template -> ", error
+                )
+                return ApiResponse.response_failed(
+                    message="Error occurred on server while uploading the template",
+                    status=500,
+                    success=False,
+                )
         return ApiResponse.response_failed(
-            message="Error occurred on server while uploading template", status=500
+            message="Error occurred on server while uploading template",
+            status=500,
+            success=False,
         )
 
 
