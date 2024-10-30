@@ -1,6 +1,9 @@
 ELEMENT_DEFAULT_CLASS_NAME = 'brand-me'
-DATA_ASSET_ID_ATTR = 'data-assest-id'
-ELEMENT_IDENTIFIER = 'data-element-id'
+ASSET_ID_PREFIX = 'data-assest-id'
+ASSET_ID_VALUE = 'asset'
+ELEMENT_IDENTIFIER_PREFIX = 'data-element-id'
+ELEMENT_IDENTIFIER_VALUE = 'element'
+
 
 DOCUMENT_META_ELEMENTS = ['meta', 'link', 'script', 'title', 'style']
 
