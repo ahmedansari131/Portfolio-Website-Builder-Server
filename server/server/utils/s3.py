@@ -4,6 +4,7 @@ from server.utils.response import BaseResponse
 import requests
 from django.conf import settings
 import time
+from portfolio.constants import S3_ASSETS_FOLDER_NAME
 
 
 def s3_name_format(name):
@@ -18,12 +19,10 @@ def s3_config():
             aws_secret_access_key=os.environ.get("S3_KEY_ID"),
             region_name=os.environ.get("S3_REGION_NAME"),
         )
+        return s3
     except Exception as error:
-        return BaseResponse.error(
-            message=f"Error occurred while connecting to S3 -> {str(error)}"
-        )
-
-    return s3
+        print("Error occurred on s3 -> ", error)
+        return None
 
 
 def get_cloudfront_domain(distribution_id):
@@ -56,7 +55,7 @@ def invalidate_cloudfront_cache(project_name, file_name):
         InvalidationBatch={
             "Paths": {
                 "Quantity": 1,
-                "Items": [f"/{project_name}/assets/{file_name}"],
+                "Items": [f"/{project_name}/{S3_ASSETS_FOLDER_NAME}/{file_name}"],
             },
             "CallerReference": str(time.time()).replace(".", ""),
         },
@@ -64,7 +63,7 @@ def invalidate_cloudfront_cache(project_name, file_name):
     return invalidation_response
 
 
-def download_assests(assest_url, s3_template_name, assest_name):
+def download_assets(assest_url, s3_template_name, assest_name):
     try:
         response = requests.get(assest_url)
         response.raise_for_status()
@@ -75,7 +74,7 @@ def download_assests(assest_url, s3_template_name, assest_name):
     content_type = response.headers.get("Content-Type")
 
     bucket_name = os.environ.get("S3_TEMPLATE_BUCKET_NAME")
-    s3_file_path = f"{s3_template_name}/assests/{assest_name}"
+    s3_file_path = f"{s3_template_name}/{S3_ASSETS_FOLDER_NAME}/{assest_name}"
 
     try:
         s3_client = s3_config()
