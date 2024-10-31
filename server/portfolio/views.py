@@ -29,9 +29,6 @@ from .utils import (
 import boto3
 from server.email import BaseEmail
 from portfolio.cloud_functions.s3 import AWS_S3_Service
-from portfolio.dom_manipulation.handle_styles import (
-    create_separate_universal_style,
-)
 from portfolio.exceptions.exceptions import GeneralError, DataNotPresent
 
 
@@ -95,6 +92,8 @@ class Project(APIView):
 
             template_serializer = ListTemplatesSerializer(template)
             template_data = template_serializer.data.get("template_dom_tree")
+            print(template_data, template_data.get("link"))
+
             if template_data:
                 sections = self.get_section(template_data)
 
@@ -111,8 +110,8 @@ class Project(APIView):
                                 template=template,
                                 portfolio_project=project_instance,
                                 meta=template_data.get("meta"),
-                                links=template_data.get("links"),
-                                scripts=template_data.get("scripts"),
+                                links=template_data.get("link"),
+                                scripts=template_data.get("script"),
                                 body=template_data.get("body"),
                                 style=template_data.get("style"),
                                 css=template_data.get("css"),
@@ -213,13 +212,11 @@ class UploadTemplate(APIView):
 
             template_name = s3_name_format(template_name)
             bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
-            local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
 
             try:
                 aws_s3_object = AWS_S3_Service(
                     bucket_name=bucket_name, template_name=template_name
                 )
-                create_separate_universal_style(local_folder_path)
                 aws_s3_object.upload_template_on_s3()
                 dom_elements_data = aws_s3_object.get_dom_elements_data()
 
@@ -252,6 +249,7 @@ class UploadTemplate(APIView):
                     message=str(error), status=400, success=False
                 )
             except GeneralError as error:
+                aws_s3_object.delete_template_from_s3()
                 return ApiResponse.response_failed(
                     message=str(error), status=500, success=False
                 )
