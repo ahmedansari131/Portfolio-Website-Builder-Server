@@ -1,9 +1,12 @@
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from .permissions import IsOwner
 from server.response.api_response import ApiResponse
 from rest_framework.views import APIView
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 from bs4 import BeautifulSoup
-from server.utils.s3 import s3_config, get_cloudfront_domain, download_assests
+from server.utils.s3 import (
+    s3_config,
+    s3_name_format,
+)
 import json
 from .serializers import (
     CreateProjectSerializer,
@@ -11,20 +14,57 @@ from .serializers import (
     TemplateDataSerializer,
     ListPortfolioProjectSerializer,
     CustomizedTemplateSerializer,
+    PortfolioContactEmailSerializer,
 )
 from .models import PortfolioProject, CustomizedTemplate, Template
 from django.shortcuts import get_object_or_404
-from server.utils.response import BaseResponse
 from django.db import transaction
 import os
 from django.conf import settings
-import mimetypes
 from django.http import Http404
-from .utils import generate_random_number
+from .utils import (
+    upload_project_file_on_s3_project,
+    get_object_or_404_with_permission,
+)
+import boto3
+from server.email import BaseEmail
+from portfolio.cloud_functions.s3 import AWS_S3_Service
+from portfolio.exceptions.exceptions import GeneralError, DataNotPresent
 
 
 class Project(APIView):
     permission_classes = [IsAuthenticated]
+
+    def configure_user_contact_form(self, user_email, project_name, template_name):
+        s3_formatted_template_name = s3_name_format(template_name)
+        s3_formatted_project_name = s3_name_format(project_name)
+        TEMPLATE_JS_OBJECT_KEY = f"{s3_formatted_template_name}/js/email.js"
+        PROJECT_JS_OBJECT_KEY = f"{s3_formatted_project_name}/js/email.js"
+        s3_client = s3_config()
+        response = s3_client.get_object(
+            Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME, Key=TEMPLATE_JS_OBJECT_KEY
+        )
+        js_code = (
+            response["Body"].read().decode("utf-8")
+        )  # Read and decode the JS content
+
+        # Step 2: Replace the placeholder with the actual email
+        modified_js_code = js_code.replace("{{USER_EMAIL}}", user_email, 1)
+
+        # Step 3: Upload the modified JS file back to S3
+        s3_client.put_object(
+            Bucket=settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME,
+            Key=PROJECT_JS_OBJECT_KEY,
+            Body=modified_js_code,
+            ContentType="application/javascript",
+        )
+
+    def create_assests_on_s3(self, project_name):
+        s3_client = s3_config()
+        bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+        s3_formatted_project_name = s3_name_format(project_name)
+        project_folder_name = s3_formatted_project_name + "/assests/"
+        s3_client.put_object(Bucket=bucket_name, Key=project_folder_name)
 
     def get_section(self, template_data):
         sections = []
@@ -35,73 +75,73 @@ class Project(APIView):
 
     def post(self, request):
         data = request.data
-        try:
-            serializer = CreateProjectSerializer(data=data)
-            if serializer.is_valid(raise_exception=True):
-                project_name = serializer.validated_data.get("project_name")
-                template_key = serializer.validated_data.get("template_name")
+        serializer = CreateProjectSerializer(data=data)
+        if serializer.is_valid(raise_exception=True):
+            project_name = serializer.validated_data.get("project_name")
+            template_key = serializer.validated_data.get("template_name")
 
-                if not isinstance(project_name, str) and project_name.get("error"):
-                    return ApiResponse.response_failed(
-                        message=project_name.get("message"), status=400
-                    )
-
-                template = get_object_or_404(
-                    Template,
-                    template_name=template_key,
+            if not isinstance(project_name, str) and project_name.get("error"):
+                return ApiResponse.response_failed(
+                    message=project_name.get("message"), status=400
                 )
 
-                template_serializer = ListTemplatesSerializer(template)
-                template_data = template_serializer.data.get("template_dom_tree")
+            template = get_object_or_404(
+                Template,
+                template_name=template_key,
+            )
 
-                if template_data:
-                    sections = self.get_section(template_data)
+            template_serializer = ListTemplatesSerializer(template)
+            template_data = template_serializer.data.get("template_dom_tree")
+            print(template_data, template_data.get("link"))
 
-                    try:
-                        with transaction.atomic():
-                            project_instance = PortfolioProject.objects.create(
-                                project_name=serializer.validated_data.get(
-                                    "project_name"
-                                ),
-                                created_by=request.user,
-                                pre_built_template=template,
-                            )
+            if template_data:
+                sections = self.get_section(template_data)
 
-                            customized_template_instance = CustomizedTemplate.objects.create(
+                try:
+                    with transaction.atomic():
+                        project_instance = PortfolioProject.objects.create(
+                            project_name=serializer.validated_data.get("project_name"),
+                            created_by=request.user,
+                            pre_built_template=template,
+                            portfolio_contact_configured_email=request.user.email,
+                        )
+                        customized_template_instance = (
+                            CustomizedTemplate.objects.create(
                                 template=template,
                                 portfolio_project=project_instance,
-                                # title=template_data.get("title"),
                                 meta=template_data.get("meta"),
-                                links=template_data.get("links"),
-                                scripts=template_data.get("scripts"),
+                                links=template_data.get("link"),
+                                scripts=template_data.get("script"),
                                 body=template_data.get("body"),
                                 style=template_data.get("style"),
                                 css=template_data.get("css"),
                                 js=template_data.get("js"),
                                 sections=sections,
                             )
-                    except Exception as error:
-                        print(
-                            "This transaction cannot occurred due to an error -> ",
-                            error,
                         )
-                        return ApiResponse.response_failed(
-                            message=f"Error occurred while creating project! Please try again or contact at support@portify.com {str(error)}",
-                            status=500,
+                        project_name = project_instance.project_name
+                        self.create_assests_on_s3(project_name=project_name)
+                        self.configure_user_contact_form(
+                            user_email=request.user.email,
+                            project_name=project_name,
+                            template_name=customized_template_instance.template.template_name,
                         )
-                return ApiResponse.response_succeed(
-                    message="Project created",
-                    status=201,
-                    data={
-                        "customized_template_id": customized_template_instance.id,
-                        "project_name": customized_template_instance.portfolio_project.project_name,
-                    },
-                )
-
-        except Exception as error:
-            return ApiResponse.response_failed(
-                message=f"Error occurred while creating project! Please try again {str(error)}",
-                status=500,
+                except Exception as error:
+                    print(
+                        "This transaction cannot occurred due to an error -> ",
+                        error,
+                    )
+                    return ApiResponse.response_failed(
+                        message=f"Error occurred while creating project! Please try again or contact at support@portify.com {str(error)}",
+                        status=500,
+                    )
+            return ApiResponse.response_succeed(
+                message="Project created",
+                status=201,
+                data={
+                    "customized_template_id": customized_template_instance.id,
+                    "project_name": customized_template_instance.portfolio_project.project_name,
+                },
             )
 
         return ApiResponse.response_failed(
@@ -139,253 +179,46 @@ class Project(APIView):
 class UploadTemplate(APIView):
     permission_classes = [IsAdminUser]
 
-    def build_dom_tree(self, elem):
-        if not elem:
-            return None
-
-        if (
-            not elem.name == "meta"
-            and not elem.name == "link"
-            and not elem.name == "title"
-            and not elem.name == "style"
-            and not elem.name == "script"
-        ):
-            elem = self.assign_class_name(elem)
-
-        if elem.name == "img":
-            elem = self.assign_unique_id(elem)
-
-        dom_tree = {
-            "tag": elem.name,
-            "attributes": elem.attrs if elem.attrs else {},
-            "text": elem.string.strip() if elem.string else "",
-            "children": [],
-        }
-
-        for child in elem.contents:
-            if isinstance(child, str):
-                if dom_tree["text"] == "":
-                    dom_tree["text"] += child.strip()
-            elif child.name is not None:
-                dom_tree["children"].append(self.build_dom_tree(child))
-        return dom_tree
-
-    def assign_class_name(self, elem):
-        if elem:
-            # Check if the element has a "class" attribute
-            if elem.has_attr("class"):
-                # Append the new class to the list of existing classes
-                elem["class"].append(
-                    "portify-class-" + generate_random_number(digits=8)
-                )
-            else:
-                # Set a new class if none exists
-                elem["class"] = ["portify-class-" + generate_random_number(digits=8)]
-            return elem
-
-    def assign_unique_id(self, elem):
-        if elem:
-            elem["data-assest-id"] = generate_random_number(digits=8)
-            return elem
-
-    def extract_element(self, dom, tag_name):
-        tag = dom.find_all(tag_name)
-        if tag:
-            return tag
-        else:
-            return ""
-
-    def handle_anchor(self, anchor_tags, s3_folder_name, bucket_name, s3_client):
-        if anchor_tags:
-            if isinstance(s3_client, str):
-                return BaseResponse.error(message=s3_client.get("message"))
-
-            cloudfront_domain = get_cloudfront_domain(
-                os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-            )
-
-            for a in anchor_tags:
-                if a.get("download"):
-                    href = a.get("href")
-                    a = self.assign_unique_id(a)
-                    s3_client.copy_object(
-                        Bucket=bucket_name,
-                        CopySource={
-                            "Bucket": bucket_name,
-                            "Key": f'{s3_folder_name}/assests/{href.split("/")[-1]}',  # Old key
-                        },
-                        Key=f'{s3_folder_name}/assests/{a.get("data-assest-id")}',  # New key
-                    )
-                    a["href"] = (
-                        f'https://{cloudfront_domain}/{s3_folder_name}/assests/{a.get("data-assest-id")}'
-                    )
-            return True
-        else:
-            return BaseResponse.error(message="Some error occurred")
-
-    def handle_image_source(self, img_tags, s3_folder_name, bucket_name, s3_client):
-        if img_tags:
-            if isinstance(s3_client, str):
-                return BaseResponse.error(message=s3_client.get("message"))
-
-            cloudfront_domain = get_cloudfront_domain(
-                os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-            )
-
-            for img in img_tags:
-                src = img.get("src")
-                if "https" in src:
-                    download_assests(
-                        assest_url=src,
-                        s3_template_name=s3_folder_name,
-                        assest_name=img.get("data-assest-id"),
-                    )
-                    img["src"] = (
-                        f'https://{cloudfront_domain}/{s3_folder_name}/assests/{img.get("data-assest-id")}'
-                    )
-
-                if not "https" in src:
-                    s3_client.copy_object(
-                        Bucket=bucket_name,
-                        CopySource={
-                            "Bucket": bucket_name,
-                            "Key": f'{s3_folder_name}/assests/{src.split("/")[-1]}',  # Old key
-                        },
-                        Key=f'{s3_folder_name}/assests/{img.get("data-assest-id")}',  # New key
-                    )
-                    img["src"] = (
-                        f'https://{cloudfront_domain}/{s3_folder_name}/assests/{img.get("data-assest-id")}'
-                    )
-            return True
-        else:
-            return BaseResponse.error(message="Some error occurred")
-
-    def get_template_from_s3(self, folder_name, file_name, bucket_name):
-        bucket_name = bucket_name
-        file_key = folder_name + "/" + file_name
-        css_file_key = f"{folder_name}/css"
-        js_file_key = f"{folder_name}/js"
-
+    def check_template_presence(self, template_name):
         try:
-            s3_client = s3_config()
-            index_response = s3_client.get_object(Bucket=bucket_name, Key=file_key)
-            css_response = s3_client.list_objects_v2(
-                Bucket=bucket_name, Prefix=css_file_key
-            )
-            js_response = s3_client.list_objects_v2(
-                Bucket=bucket_name, Prefix=js_file_key
-            )
-        except NoCredentialsError:
-            return BaseResponse.error(message="Credentials not available")
-        except PartialCredentialsError:
-            return BaseResponse.error(message="Incomplete credentials")
-        except s3_client.exceptions.NoSuchKey:
-            return BaseResponse.error(message="File not found")
+            template_instance = Template.objects.get(template_name=template_name)
+            return template_instance
+        except Template.DoesNotExist:
+            raise DataNotPresent(f"{template_name} is not present in db")
         except Exception as error:
-            return BaseResponse.error(message=str(error))
-
-        html_content = index_response["Body"].read().decode("utf-8")
-        css = [obj["Key"] for obj in css_response.get("Contents", [])]
-        js = [obj["Key"] for obj in js_response.get("Contents", [])]
-
-        soup = BeautifulSoup(html_content, "html.parser")
-        tags = ["meta", "link", "title", "style", "body", "script"]
-        dom_tree_json = {}
-
-        for tag in tags:
-            elements = self.extract_element(soup, tag)
-            if elements:
-                if tag not in dom_tree_json:
-                    dom_tree_json[tag] = []
-                for element in elements:
-                    dom_tree_json[tag].append(self.build_dom_tree(element))
-
-        img_tags = soup.find_all("img")
-        image_response = self.handle_image_source(
-            img_tags=img_tags,
-            s3_folder_name=folder_name,
-            bucket_name=bucket_name,
-            s3_client=s3_client,
-        )
-        if not image_response:
-            return BaseResponse.error(message=image_response.get("message"))
-
-        anchor_tags = soup.find_all("a")
-        anchor_response = self.handle_anchor(
-            anchor_tags=anchor_tags,
-            s3_folder_name=folder_name,
-            bucket_name=bucket_name,
-            s3_client=s3_client,
-        )
-        if not anchor_response:
-            return BaseResponse.error(message=anchor_response.get("message"))
-
-        return {"dom_tree": dom_tree_json, "css": css, "js": js}
-
-    def get_dom_elements_data(self, s3_folder_name, s3_file_name, bucket_name):
-        s3_template_data = self.get_template_from_s3(
-            s3_folder_name, s3_file_name, bucket_name
-        )
-
-        dom_tree = s3_template_data.get("dom_tree")
-        css_path = s3_template_data.get("css")
-        js_path = s3_template_data.get("js")
-        if dom_tree:
-            title = dom_tree.get("title") or {}
-            meta = dom_tree.get("meta") or {}
-            links = dom_tree.get("link") or {}
-            scripts = dom_tree.get("script") or {}
-            style = dom_tree.get("style") or {}
-            body = dom_tree.get("body") or {}
-            return {
-                "title": title,
-                "meta": meta,
-                "links": links,
-                "scripts": scripts,
-                "style": style,
-                "css": css_path,
-                "js": js_path,
-                "body": body,
-            }
-        return {}
+            print(
+                "Error occurred while checking the template availablility in db -> ",
+                error,
+            )
+            raise GeneralError(
+                f"Error occurred while processing the template {template_name}"
+            )
 
     def post(self, request, template_name):
         if template_name:
-            local_folder_path = os.path.join(settings.TEMPLATES_BASE_DIR, template_name)
-            s3_client = s3_config()
+            try:
+                if self.check_template_presence(template_name=template_name):
+                    return ApiResponse.response_failed(
+                        message=f"Template with the name '{template_name}' is already exist.",
+                        success=False,
+                        status=400,
+                    )
+            except DataNotPresent:
+                pass
+            except Exception as error:
+                return ApiResponse.response_failed(
+                    message=str(error), success=False, status=500
+                )
+
+            template_name = s3_name_format(template_name)
             bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
-            s3_folder_key = f"{template_name}/"
 
             try:
-                s3_client.put_object(Bucket=bucket_name, Key=s3_folder_key)
-
-                for root, _, files in os.walk(local_folder_path):
-                    for file_name in files:
-                        local_file_path = os.path.join(root, file_name)
-                        s3_key = s3_folder_key + os.path.relpath(
-                            local_file_path, local_folder_path
-                        )
-                        s3_key = s3_key.replace(
-                            "\\", "/"
-                        )  # Ensure forward slashes in S3 key
-
-                        content_type, _ = mimetypes.guess_type(local_file_path)
-                        if not content_type:
-                            content_type = "application/octet-stream"
-
-                        with open(local_file_path, "rb") as file_data:
-                            s3_client.upload_fileobj(
-                                file_data,
-                                bucket_name,
-                                s3_key,
-                                ExtraArgs={"ContentType": content_type},
-                            )
-
-                dom_elements_data = self.get_dom_elements_data(
-                    s3_folder_name=template_name,
-                    s3_file_name="index.html",
-                    bucket_name=bucket_name,
+                aws_s3_object = AWS_S3_Service(
+                    bucket_name=bucket_name, template_name=template_name
                 )
+                aws_s3_object.upload_template_on_s3()
+                dom_elements_data = aws_s3_object.get_dom_elements_data()
 
                 if not dom_elements_data:
                     return ApiResponse.response_failed(
@@ -393,24 +226,17 @@ class UploadTemplate(APIView):
                         status=500,
                     )
 
-                cloudfront_domain = get_cloudfront_domain(
-                    os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
-                )
-
-                template_cloudfront_url = (
-                    f"https://{cloudfront_domain}/{s3_folder_key}index.html"
-                )
-                template_preview_cloudfront_url = (
-                    f"https://{cloudfront_domain}/{s3_folder_key}assests/preview.png"
+                template_url, template_preview_url = (
+                    aws_s3_object.create_template_url().values()
                 )
 
                 Template.objects.create(
                     template_name=template_name,
-                    template_url=template_cloudfront_url,
-                    template_preview=template_preview_cloudfront_url,
+                    template_url=template_url,
+                    template_preview=template_preview_url,
                     template_dom_tree=dom_elements_data,
                     bucket_name=bucket_name,
-                    cloudfront_domain=cloudfront_domain,
+                    cloudfront_domain=aws_s3_object.template_cloudfront_domain,
                     created_by=request.user,
                 )
 
@@ -418,10 +244,29 @@ class UploadTemplate(APIView):
                     message="Template uploaded successfully",
                     status=201,
                 )
+            except DataNotPresent as error:
+                return ApiResponse.response_failed(
+                    message=str(error), status=400, success=False
+                )
+            except GeneralError as error:
+                aws_s3_object.delete_template_from_s3()
+                return ApiResponse.response_failed(
+                    message=str(error), status=500, success=False
+                )
             except Exception as error:
-                return ApiResponse.response_failed(message=str(error), status=400)
+                aws_s3_object.delete_template_from_s3()
+                print(
+                    "Error occurred on server while uploading the template -> ", error
+                )
+                return ApiResponse.response_failed(
+                    message="Error occurred on server while uploading the template",
+                    status=500,
+                    success=False,
+                )
         return ApiResponse.response_failed(
-            message="Error occurred on server while uploading template", status=500
+            message="Error occurred on server while uploading template",
+            status=500,
+            success=False,
         )
 
 
@@ -443,19 +288,12 @@ class ListPortfolioProject(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
-        if not user:
-            return ApiResponse.response_failed(
-                message="You are not authenticated. Please signin first!", status=401
-            )
-
         try:
-            projects = PortfolioProject.objects.filter(created_by=user)
+            projects = PortfolioProject.objects.filter(created_by=request.user)
             if not projects:
                 return ApiResponse.response_failed(
-                    message="No project found", status=404
+                    message="No project found", status=404, success=False
                 )
-
             serializer = ListPortfolioProjectSerializer(projects, many=True)
             return ApiResponse.response_succeed(
                 message="Project found", data=serializer.data, status=200
@@ -469,20 +307,31 @@ class ListPortfolioProject(APIView):
 
 
 class UpdateCustomizeTemplate(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get_object(self, pk):
+        try:
+            customized_template_instance = CustomizedTemplate.objects.get(id=pk)
+            self.check_object_permissions(
+                self.request, customized_template_instance.portfolio_project
+            )
+            return customized_template_instance
+        except CustomizedTemplate.DoesNotExist:
+            return None
 
     def post(self, request):
         data = request.data
-        customized_template_id = data.get("customized_template_id")
-        customized_template_body = data.get("body")
-        customized_template_style = data.get("style")
+        customized_template_id = data.get("customized_template_id", None)
+        customized_template_body = data.get("body", None)
+        customized_template_style = data.get("style", None)
 
-        print(json.dumps(customized_template_body, indent=2))
+        if not customized_template_id:
+            return ApiResponse.response_failed(
+                message="Custom template id is not found", success=False, status=404
+            )
 
         try:
-            customized_template = CustomizedTemplate.objects.get(
-                id=customized_template_id
-            )
+            customized_template = self.get_object(pk=customized_template_id)
 
             if not customized_template:
                 return ApiResponse.response_failed(
@@ -500,7 +349,7 @@ class UpdateCustomizeTemplate(APIView):
         except Exception as error:
             print("Error occurred -> ", error)
             return ApiResponse.response_failed(
-                success=False, message="No project found", status=404
+                success=False, message=str(error), status=404
             )
 
         return ApiResponse.response_succeed(
@@ -508,8 +357,61 @@ class UpdateCustomizeTemplate(APIView):
         )
 
 
+class UpdateProjectImageOrDocument(APIView):
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def post(self, request):
+        data = request.data
+        file = request.FILES.get("file_path", None)
+        project_name = data.get("project_name", None)
+        new_file_name = data.get("new_file_name", None)
+        project_id = data.get("project_id", None)
+
+        if not file and not project_name and not new_file_name:
+            return ApiResponse.response_failed(
+                message="Data related to image is not provided",
+                status=404,
+                success=False,
+            )
+
+        try:
+            project_instance = get_object_or_404_with_permission(
+                self, PortfolioProject.objects, project_id
+            )
+        except PortfolioProject.DoesNotExist:
+            return ApiResponse.response_failed(
+                message="No project found. Please refresh and create one to proceed further!",
+                success=False,
+                status=404,
+            )
+        except Exception as error:
+            return ApiResponse.response_failed(
+                message=str(error),
+                success=False,
+                status=500,
+            )
+
+        uploaded = upload_project_file_on_s3_project(
+            file=file,
+            project_folder_name=s3_name_format(project_name),
+            new_file_name=new_file_name,
+        )
+
+        if uploaded.get("error"):
+            return ApiResponse.response_failed(
+                message=uploaded.get("message"), status=500, success=False
+            )
+
+        return ApiResponse.response_succeed(
+            message="Image uploaded successfully",
+            status=200,
+            success=True,
+            data=uploaded,
+        )
+
+
 class Deployment(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwner]
 
     def parse_element(self, elements, soup, parent=None):
         top_level_elements = []
@@ -585,7 +487,7 @@ class Deployment(APIView):
 
     def convert_json_to_css(self, css_json):
         css_rules = []
-
+        print("json", css_json)
         # Iterate over the JSON object to convert it to CSS format
         for class_name, properties in css_json.items():
             css_rule = f".{class_name} {{\n"
@@ -604,7 +506,11 @@ class Deployment(APIView):
     def extract_template_css(self, s3_client, template_name):
         try:
             css_response = {}
-            cssData = [{"file": "style.css"}, {"file": "responsive.css"}]
+            cssData = [
+                {"file": "style.css"},
+                {"file": "responsive.css"},
+                {"file": "body-styles.css"},
+            ]
 
             for data in cssData:
                 response = s3_client.get_object(
@@ -616,6 +522,8 @@ class Deployment(APIView):
                     css_response["template_css"] = css
                 elif data["file"] == "responsive.css":
                     css_response["template_responsive_css"] = css
+                elif data["file"] == "body-styles.css":
+                    css_response["template_body_css"] = css
 
             return css_response
 
@@ -650,12 +558,23 @@ class Deployment(APIView):
         description = request.data.get("description")
 
         try:
-            customized_template_instance = CustomizedTemplate.objects.get(
-                id=custom_template_id
+            portfolio_project_instance = get_object_or_404_with_permission(
+                view=self, queryset=PortfolioProject.objects, pk=custom_template_id
             )
+            if portfolio_project_instance:
+                customized_template_instance = CustomizedTemplate.objects.get(
+                    id=custom_template_id
+                )
             serializer = CustomizedTemplateSerializer(customized_template_instance)
         except CustomizedTemplate.DoesNotExist:
             print("Custom template with the given id does not exist.")
+            return ApiResponse.response_failed(
+                message="Your customized portfolio template not found.",
+                status=500,
+                success=False,
+            )
+        except Exception as error:
+            print("Error occurred on server", error)
             return ApiResponse.response_failed(
                 message="Error occurred on server", status=500, success=False
             )
@@ -667,6 +586,12 @@ class Deployment(APIView):
         script = serializer.data.get("scripts")
         template_name = customized_template_instance.template.template_name
 
+        if not title and not description:
+            title = customized_template_instance.portfolio_project.portfolio_title
+            description = (
+                customized_template_instance.portfolio_project.portfolio_description
+            )
+
         html = self.build_html(
             meta=meta_data,
             body=body,
@@ -675,7 +600,11 @@ class Deployment(APIView):
             title=title,
             description=description,
         )
-        custom_css = self.convert_json_to_css(style)
+
+        if isinstance(style, dict):
+            custom_css = ""
+        else:
+            custom_css = self.convert_json_to_css(style[0])
 
         s3_client = s3_config()
 
@@ -689,6 +618,7 @@ class Deployment(APIView):
         merged_css = css_response["template_css"] + "\n" + custom_css
 
         bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+        project_name = s3_name_format(project_name)
         content_to_upload = [
             {
                 "file_name": "index.html",
@@ -704,6 +634,11 @@ class Deployment(APIView):
                 "file_name": "css/responsive.css",
                 "content_type": "text/css",
                 "file_content": str(css_response["template_responsive_css"]),
+            },
+            {
+                "file_name": "css/body-styles.css",
+                "content_type": "text/css",
+                "file_content": str(css_response["template_body_css"]),
             },
             {
                 "file_name": "js/script.js",
@@ -727,12 +662,8 @@ class Deployment(APIView):
             )
 
         try:
-            cloudfront_domain = get_cloudfront_domain(
-                distribution_id=os.environ.get(
-                    "DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID"
-                )
-            )
-            deployed_url = f"{cloudfront_domain}/{project_name}/index.html"
+            domain_name = os.environ.get("DOMAIN_NAME")
+            deployed_url = f"{portfolio_project_instance.project_slug}.{domain_name}"
         except Exception as error:
             print("Error occurred while building cloudfront url -> ", error)
             return ApiResponse.response_failed(
@@ -744,6 +675,11 @@ class Deployment(APIView):
         try:
             customized_template_instance.portfolio_project.deployed_url = deployed_url
             customized_template_instance.portfolio_project.is_deployed = True
+            customized_template_instance.portfolio_project.portfolio_title = title
+            customized_template_instance.portfolio_project.portfolio_description = title
+            customized_template_instance.portfolio_project.portfolio_description = (
+                description
+            )
             customized_template_instance.portfolio_project.save()
         except Exception as error:
             print(
@@ -765,13 +701,215 @@ class Deployment(APIView):
         user = request.user
 
         try:
-            deployed_project_instance = PortfolioProject.objects.filter(created_by=user, is_deployed=True)
-            serializer = ListPortfolioProjectSerializer(deployed_project_instance, many=True)
+            deployed_project_instance = PortfolioProject.objects.filter(
+                created_by=user, is_deployed=True
+            )
+
+            if not deployed_project_instance:
+                return ApiResponse.response_failed(
+                    message="No deployed project found.", success=False, status=404
+                )
+
+            serializer = ListPortfolioProjectSerializer(
+                deployed_project_instance, many=True
+            )
         except Exception as error:
             print("Error occurred while getting the deployed projects -> ", error)
-            return ApiResponse.response_failed(message="Error occurred on server while getting the deployed projects", status=500, success=False)
-
+            return ApiResponse.response_failed(
+                message="Error occurred on server while getting the deployed projects",
+                status=500,
+                success=False,
+            )
 
         return ApiResponse.response_succeed(
-            message="Deployed projects found.", success=True, status=200, data=serializer.data
+            message="Deployed projects found.",
+            success=True,
+            status=200,
+            data=serializer.data,
+        )
+
+
+class DeletePortfolioProject(APIView):
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def post(self, request, project_id):
+        delete = request.GET.get("delete", "false").lower()
+        delete_flag = delete == "true"
+
+        if not project_id:
+            return ApiResponse.response_failed(
+                message="Project id is not found. Please try again!",
+                success=False,
+                status=404,
+            )
+
+        if delete is None:
+            return ApiResponse.response_failed(
+                message="Delete value is not provided. Please try again!",
+                success=False,
+                status=404,
+            )
+
+        try:
+            project_instance = get_object_or_404_with_permission(
+                view=self, queryset=PortfolioProject.objects, pk=project_id
+            )
+            if not project_instance:
+                return ApiResponse.response_failed(
+                    message="Project not found. Please check you have created one.",
+                    success=False,
+                    status=404,
+                )
+
+            if delete_flag:
+                project_instance.is_deleted = True
+            elif not delete_flag:
+                project_instance.is_deleted = False
+
+            project_instance.save()
+
+        except PortfolioProject.DoesNotExist:
+            print("Project does not exist")
+            return ApiResponse.response_failed(
+                message="Project not found. Please check you have created one.",
+                success=False,
+                status=404,
+            )
+        except Exception as error:
+            print("Error occurred while deleting the project", error)
+            return ApiResponse.response_failed(
+                message=str(error), status=500, success=False
+            )
+
+        return ApiResponse.response_succeed(
+            success=True, message="Project deleted successfully", status=200
+        )
+
+
+class PortfolioDomain(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        domain_name = request.data.get("domain_name") + "." + request.data.get("tld")
+        print(domain_name)
+        route53_client = boto3.client(
+            "route53domains",
+            aws_access_key_id=os.environ.get("53_SECRET_ACCESS_KEY"),
+            aws_secret_access_key=os.environ.get("53_ACCESS_KEY"),
+            region_name="us-east-1",
+        )
+
+        try:
+            response = route53_client.check_domain_availability(DomainName=domain_name)
+            is_available = response.get("Availability")
+            print(response)
+        except Exception as error:
+            print("Error occurred while checking domain availability", error)
+            return ApiResponse.response_failed(
+                message="Error occurred on server while checking domain availability",
+                status=500,
+                success=False,
+            )
+
+        return ApiResponse.response_succeed(
+            message="Domain is " + is_available,
+            status=200,
+            success=True,
+        )
+
+
+class PortfolioEmailSend(APIView):
+    # TODO: NEED TO CONFIGURE JS IN TEMPLATE FOR STORING THE PROJECT ID AND UPDATING AN EMAIL
+    def is_email_verified(self, email, project_id):
+        try:
+            portfolio_instance = PortfolioProject.objects.filter(
+                id=project_id,
+                portfolio_contact_configured_email=email,
+                is_verified_portfolio_contact_email=True,
+            )
+            print(portfolio_instance, project_id, email)
+            if portfolio_instance:
+                return True
+            else:
+                return False
+        except Exception as error:
+            print("Error occurred on server", error)
+            return False
+
+    def post(self, request):
+        user_email = request.data.get("user")
+        contact_name = request.data.get("contact_name")
+        contact_message = request.data.get("contact_message")
+        contact_email = request.data.get("contact_email")
+        project_id = request.data.get("project_id")
+
+        if (
+            not user_email
+            and not contact_name
+            and not contact_message
+            and not contact_email
+            and not project_id
+        ):
+            return ApiResponse.response_failed(
+                message="Data is not provided", status=404, success=False
+            )
+
+        if not self.is_email_verified(email=user_email, project_id=project_id):
+            return ApiResponse.response_failed(
+                message="Email could not be sent.", success=False, status=401
+            )
+
+        try:
+            user_contact_email = BaseEmail(
+                sender=os.environ.get("PORTFOLIO_SENDER_EMAIL"),
+                recipient=user_email,
+                subject=f"New message from {contact_name}",
+                message="New message",
+                template_path="email_templates/portfolio_contact_email.html",
+                content={
+                    "message": contact_message,
+                    "email": contact_email,
+                    "name": contact_name,
+                },
+            )
+            user_contact_email.send_email()
+        except Exception as error:
+            print("Error occurred while sending an email", error)
+            return ApiResponse.response_failed(
+                message="Error occurred while sending email", success=False, status=500
+            )
+        return ApiResponse.response_succeed(
+            message="Email sent successfully", status=200, success=True
+        )
+
+
+class SendPortfolioContactEmailVerificationEmail(APIView):
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def post(self, request):
+        project_id = request.data.get("project_id")
+
+        try:
+            project_instance = get_object_or_404_with_permission(
+                self, PortfolioProject.objects, project_id
+            )
+        except PortfolioProject.DoesNotExist:
+            return ApiResponse.response_failed(
+                message="Project does not exist", status=404, success=False
+            )
+
+        serializer = PortfolioContactEmailSerializer(data=request.data)
+        if not serializer.is_valid():
+            return ApiResponse.response_failed(
+                message=serializer.errors, success=False, status=400
+            )
+
+        project_instance.portfolio_contact_configured_email = (
+            serializer.validated_data.get("portfolio_contact_configured_email")
+        )
+        project_instance.save(update_fields=["portfolio_contact_configured_email"])
+        return ApiResponse.response_succeed(
+            message="A verification email is sent to your email address",
+            status=200,
+            success=True,
         )

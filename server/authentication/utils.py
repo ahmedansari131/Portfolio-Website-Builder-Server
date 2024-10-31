@@ -5,6 +5,8 @@ from rest_framework_simplejwt.tokens import UntypedToken
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 import os
 import secrets
+from .jwt_token import Token
+from authentication.constants import EMAIL_VERIFICATION_TOKEN_TYPE
 
 
 def get_existing_user(user_id):
@@ -50,3 +52,13 @@ def set_cookie_helper(
         secure=secure,
     )
     return response
+
+
+def generate_email_verification_link(user_id, token_type, **kwargs):
+    tokenization = Token(user_id=user_id, token_type=token_type, **kwargs)
+    token = tokenization.generate_token()
+    if token:
+        verification_link = (
+            f'{os.environ.get("CLIENT_PATH_PREFIX")}/verify-email/?token={token}'
+        )
+        return verification_link
