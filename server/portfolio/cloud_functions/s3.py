@@ -1,9 +1,6 @@
 import os
-from server.utils.response import BaseResponse
-from server.utils.s3 import get_cloudfront_domain, s3_config, download_assets
-from portfolio.dom_manipulation.element_attr import assign_asset_id
+from server.utils.s3 import get_cloudfront_domain, S3CLientSingleton
 from portfolio.constants import (
-    ASSET_ID_PREFIX,
     S3_ASSETS_FOLDER_NAME,
     S3_CSS_FOLDER_NAME,
     S3_JS_FOLDER_NAME,
@@ -11,15 +8,15 @@ from portfolio.constants import (
     TEMPLATE_PREVIEW_IMAGE,
 )
 from portfolio.exceptions.exceptions import TemplateRetrievalError, GeneralError
-from portfolio.dom_manipulation.handle_dom import parse_html_content
 from django.conf import settings
 import mimetypes
+from portfolio.dom_manipulation.handle_dom import build_html_using_json
 
 
 class AWS_S3_Service:
 
     def __init__(self, bucket_name, template_name):
-        self.s3_client = s3_config()
+        self.s3_client = S3CLientSingleton.get_instance()
         self.template_cloudfront_domain = get_cloudfront_domain(
             os.environ.get("PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID")
         )
@@ -29,91 +26,14 @@ class AWS_S3_Service:
         self.domain_name = os.environ.get("DOMAIN_NAME")
         self.bucket_name = bucket_name
         self.template_name = template_name
+        self.local_template_path = settings.TEMPLATES_BASE_DIR
+        self.dom_tree = []
 
-    def handle_anchor_element(self, anchor_tags):
-        if anchor_tags:
-            for a in anchor_tags:
-
-                # If download attribute is present in anchor, then it is asset
-                if a.get("download"):
-                    href = a.get("href")
-                    a = assign_asset_id(a)
-                    asset_name = a.get(ASSET_ID_PREFIX)
-                    old_s3_asset_key = f'{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{href.split("/")[-1]}'
-                    new_s3_asset_key = (
-                        f"{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-                    )
-
-                    self.s3_client.copy_object(
-                        Bucket=self.bucket_name,
-                        CopySource={
-                            "Bucket": self.bucket_name,
-                            "Key": old_s3_asset_key,  # Old key
-                        },
-                        Key=new_s3_asset_key,  # New key
-                    )
-
-                    if self.domain_name:
-                        anchor_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-                    else:
-                        anchor_path = f"https://{self.template_cloudfront_domain}/{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-
-                    a["href"] = anchor_path
-            return True
-        else:
-            return BaseResponse.error(message="Some error occurred")
-
-    def handle_image_source(self, img_tags):
-        if img_tags:
-            for img in img_tags:
-                src = img.get("src")
-                asset_name = img.get(ASSET_ID_PREFIX)
-
-                # If image is coming from some online sources -> copying to the s3
-                if "https" in src:
-                    download_assets(
-                        assest_url=src,
-                        s3_template_name=self.template_name,
-                        assest_name=asset_name,
-                    )
-
-                # If image is stored in local -> copying to the s3
-                elif not "https" and not "http" in src:
-                    old_s3_key = f'{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{src.split("/")[-1]}'
-                    new_s3_key = (
-                        f"{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-                    )
-
-                    self.s3_client.copy_object(
-                        Bucket=self.bucket_name,
-                        CopySource={
-                            "Bucket": self.bucket_name,
-                            "Key": old_s3_key,  # Old key
-                        },
-                        Key=new_s3_key,  # New key
-                    )
-
-                if self.domain_name:
-                    img_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-                else:
-                    img_path = f"https://{self.template_cloudfront_domain}/{self.template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-                img["src"] = img_path
-
-            return True
-        else:
-            return BaseResponse.error(
-                message="Some error occurred while handling images in s3"
-            )
-
-    def get_template_from_s3(self):
-        index_file_key = f"{self.template_name}/index.html"
+    def get_static_content_from_s3(self):
         css_file_key = f"{self.template_name}/{S3_CSS_FOLDER_NAME}"
         js_file_key = f"{self.template_name}/{S3_JS_FOLDER_NAME}"
 
         try:
-            index_response = self.s3_client.get_object(
-                Bucket=self.bucket_name, Key=index_file_key
-            )
             css_response = self.s3_client.list_objects_v2(
                 Bucket=self.bucket_name, Prefix=css_file_key
             )
@@ -129,27 +49,16 @@ class AWS_S3_Service:
                 f"Some files are missing",
             )
 
-        dom_tree_json, css, js, img_tags, anchor_tags = parse_html_content(
-            index_response, css_response, js_response
-        )
+        # Retrieving the static content from the s3 response
+        css = [obj["Key"] for obj in css_response.get("Contents", [])]
+        js = [obj["Key"] for obj in js_response.get("Contents", [])]
 
-        image_response = self.handle_image_source(
-            img_tags=img_tags,
-        )
-        if not image_response:
-            return BaseResponse.error(message=image_response.get("message"))
-
-        anchor_response = self.handle_anchor_element(
-            anchor_tags=anchor_tags,
-        )
-        if not anchor_response:
-            return BaseResponse.error(message=anchor_response.get("message"))
-
-        return {"dom_tree": dom_tree_json, "css_path": css, "js_path": js}
+        return {"css_path": css, "js_path": js}
 
     def get_dom_elements_data(self):
-        s3_template_data = self.get_template_from_s3()
-        dom_tree, css_path, js_path = s3_template_data.values()
+        dom_tree = self.dom_tree
+        s3_template_static_data = self.get_static_content_from_s3()
+        css_path, js_path = s3_template_static_data.values()
 
         if dom_tree:
             keys = ["title", "meta", "link", "script", "style", "body"]
@@ -165,21 +74,20 @@ class AWS_S3_Service:
 
     def upload_template_on_s3(self):
         s3_folder_key = f"{self.template_name}/"
-        local_folder_path = os.path.join(
-            settings.TEMPLATES_BASE_DIR, self.template_name
-        )
 
         try:
+            # Creating folder on s3 named as per the template
             self.s3_client.put_object(Bucket=self.bucket_name, Key=s3_folder_key)
         except Exception as error:
             print("Error occurred while creating the template folder on s3 -> ", error)
             raise GeneralError("Error occurred while creating the template on s3")
 
+        local_folder_path = os.path.join(self.local_template_path, self.template_name)
+
         try:
             for root, _, files in os.walk(local_folder_path):
-
-                # Don't upload .git folder on s3
-                if ".git" in root:
+                # Don't upload .git folder and index file on s3
+                if ".git" in root or INDEX_FILE in files:
                     continue
 
                 for file_name in files:
@@ -211,9 +119,17 @@ class AWS_S3_Service:
                         raise GeneralError(
                             "Error occurred while uploading the content to storage"
                         )
+
         except Exception as error:
             print("Template is not present in the local directory -> ", error)
             raise GeneralError("Template is not present in the local directory")
+
+        try:
+            self.upload_index_file_to_s3()
+        except Exception as error:
+            print("Error occurred while uploading the html file on s3 -> ", error)
+            raise GeneralError("Error occurred while uploading the html file")
+        return
 
     def create_template_url(self):
         domain_name = os.environ.get("DOMAIN_NAME")
@@ -245,3 +161,22 @@ class AWS_S3_Service:
         except Exception as error:
             print("Error occurred while deleting from S3:", error)
             raise GeneralError("Error occurred while roll back")
+
+    def upload_index_file_to_s3(self):
+        s3_key = f"{self.template_name}/{INDEX_FILE}"
+        html_data = build_html_using_json(template_name=self.template_name)
+        html_content = html_data.get("html")
+        self.dom_tree = html_data.get("html_json")
+
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=html_content.encode(
+                    "utf-8"
+                ),  # String encoding is mandatory for uploading
+                ContentType="text/html",
+            )
+        except Exception as error:
+            print("Error occurred while putting the index file on s3 -> ", error)
+            raise GeneralError("Error occurred while uploading the html file on cloud")
