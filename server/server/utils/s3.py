@@ -1,14 +1,10 @@
 import boto3
 import os
-from server.utils.response import BaseResponse
-import requests
 from django.conf import settings
 import time
 from portfolio.constants import S3_ASSETS_FOLDER_NAME
-
-
-def s3_name_format(name):
-    return name.replace(" ", "-").lower()
+from portfolio.exceptions.exceptions import GeneralError
+import requests
 
 
 def s3_config():
@@ -23,6 +19,49 @@ def s3_config():
     except Exception as error:
         print("Error occurred on s3 -> ", error)
         return None
+
+
+class S3CLientSingleton:
+    _instance = None  # Private class-level variable to hold the S3 client instance
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = s3_config()
+        return cls._instance
+
+
+class AWS_S3_Operations:
+    s3_client = S3CLientSingleton.get_instance()
+
+    @classmethod
+    def copy_object_in_s3(cls, old_s3_asset_key, new_s3_asset_key, bucket_name):
+        try:
+            cls.s3_client.copy_object(
+                Bucket=bucket_name,
+                CopySource={
+                    "Bucket": bucket_name,
+                    "Key": old_s3_asset_key,  # Old key
+                },
+                Key=new_s3_asset_key,  # New key
+            )
+            return
+        except Exception as error:
+            print("Error occurred while copying the object -> ", error)
+            raise GeneralError("Error occurred while processing the images")
+
+    @classmethod
+    def delete_object_in_s3(cls, bucket_name, old_s3_asset_key):
+        try:
+            cls.s3_client.delete_object(Bucket=bucket_name, Key=old_s3_asset_key)
+            return
+        except Exception as error:
+            print("Error occurred while deleting the object -> ", error)
+            raise GeneralError("Error occurred while processing the images")
+
+
+def s3_name_format(name):
+    return name.replace(" ", "-").lower()
 
 
 def get_cloudfront_domain(distribution_id):
@@ -63,9 +102,16 @@ def invalidate_cloudfront_cache(project_name, file_name):
     return invalidation_response
 
 
-def download_assets(assest_url, s3_template_name, assest_name):
+def download_assets(asset_url, s3_template_name, asset_name):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Connection": "keep-alive",
+    }
+
     try:
-        response = requests.get(assest_url)
+        response = requests.get(asset_url, headers=headers)
         response.raise_for_status()
     except Exception as error:
         return str(error)
@@ -74,12 +120,15 @@ def download_assets(assest_url, s3_template_name, assest_name):
     content_type = response.headers.get("Content-Type")
 
     bucket_name = os.environ.get("S3_TEMPLATE_BUCKET_NAME")
-    s3_file_path = f"{s3_template_name}/{S3_ASSETS_FOLDER_NAME}/{assest_name}"
+    s3_file_path = f"{s3_template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
 
     try:
-        s3_client = s3_config()
+        s3_client = S3CLientSingleton.get_instance()
         response = s3_client.put_object(
-            Bucket=bucket_name, Key=s3_file_path, Body=content, ContentType=content_type
+            Bucket=bucket_name,
+            Key=s3_file_path,
+            Body=content,
+            ContentType=content_type,
         )
         return True
     except Exception as error:
