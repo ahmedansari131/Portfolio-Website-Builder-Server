@@ -5,11 +5,15 @@ from portfolio.constants import (
     ASSET_ID_PREFIX,
     DOCUMENT_META_ELEMENTS,
     INDEX_FILE,
+    ELEMENT_DEFAULT_CLASS_NAME,
+    ELEMENT_IDENTIFIER_PREFIX,
+    ELEMENT_IDENTIFIER_VALUE,
 )
 import os
 from server.utils.s3 import AWS_S3_Operations, get_cloudfront_domain, download_assets
 from django.conf import settings
 from portfolio.exceptions.exceptions import GeneralError
+from portfolio.utils import generate_random_characters
 
 empty_html_template = """
                         <!DOCTYPE html>
@@ -277,3 +281,29 @@ def parse_local_index_file(template_name):
     except Exception as error:
         print("Error occurred while reading the html file on local -> ", error)
         raise GeneralError("Error occurred while reading the html file on local")
+
+
+def parse_dom_tree(dom_tree):
+    if not dom_tree:
+        raise GeneralError("DOM tree is not provided.")
+
+    # Assign classname and unique identifier
+    class_name = (
+        f"{ELEMENT_DEFAULT_CLASS_NAME}-{generate_random_characters(digits=8)}".lower()
+    )
+    unique_identifier = (
+        f"{ELEMENT_IDENTIFIER_VALUE}-{generate_random_characters(digits=8)}".lower()
+    )
+
+    if not dom_tree["tag"] == "body":
+        if "class" in dom_tree["attributes"]:
+            dom_tree["attributes"]["class"].append(class_name)
+        else:
+            dom_tree["attributes"]["class"] = [class_name]
+
+        dom_tree["attributes"][ELEMENT_IDENTIFIER_PREFIX] = unique_identifier
+
+    for child in dom_tree["children"]:
+        parse_dom_tree(dom_tree=child)
+
+    return dom_tree
