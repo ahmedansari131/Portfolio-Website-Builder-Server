@@ -28,43 +28,13 @@ from .utils import (
 )
 import boto3
 from server.email import BaseEmail
-from portfolio.cloud_functions.s3 import AWS_S3_Service
+from portfolio.cloud_functions.s3 import S3_Template, S3_Project
 from portfolio.exceptions.exceptions import GeneralError, DataNotPresent
+from portfolio.dom_manipulation.handle_dom import parse_dom_tree
 
 
 class Project(APIView):
     permission_classes = [IsAuthenticated]
-
-    def configure_user_contact_form(self, user_email, project_name, template_name):
-        s3_formatted_template_name = s3_name_format(template_name)
-        s3_formatted_project_name = s3_name_format(project_name)
-        TEMPLATE_JS_OBJECT_KEY = f"{s3_formatted_template_name}/js/email.js"
-        PROJECT_JS_OBJECT_KEY = f"{s3_formatted_project_name}/js/email.js"
-        s3_client = s3_config()
-        response = s3_client.get_object(
-            Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME, Key=TEMPLATE_JS_OBJECT_KEY
-        )
-        js_code = (
-            response["Body"].read().decode("utf-8")
-        )  # Read and decode the JS content
-
-        # Step 2: Replace the placeholder with the actual email
-        modified_js_code = js_code.replace("{{USER_EMAIL}}", user_email, 1)
-
-        # Step 3: Upload the modified JS file back to S3
-        s3_client.put_object(
-            Bucket=settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME,
-            Key=PROJECT_JS_OBJECT_KEY,
-            Body=modified_js_code,
-            ContentType="application/javascript",
-        )
-
-    def create_assests_on_s3(self, project_name):
-        s3_client = s3_config()
-        bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
-        s3_formatted_project_name = s3_name_format(project_name)
-        project_folder_name = s3_formatted_project_name + "/assests/"
-        s3_client.put_object(Bucket=bucket_name, Key=project_folder_name)
 
     def get_section(self, template_data):
         sections = []
@@ -78,23 +48,18 @@ class Project(APIView):
         serializer = CreateProjectSerializer(data=data)
         if serializer.is_valid(raise_exception=True):
             project_name = serializer.validated_data.get("project_name")
-            template_key = serializer.validated_data.get("template_name")
+            template_name = serializer.validated_data.get("template_name")
 
-            if not isinstance(project_name, str) and project_name.get("error"):
-                return ApiResponse.response_failed(
-                    message=project_name.get("message"), status=400
-                )
-
-            template = get_object_or_404(
+            template_instance = get_object_or_404(
                 Template,
-                template_name=template_key,
+                template_name=template_name,
             )
 
-            template_serializer = ListTemplatesSerializer(template)
-            template_data = template_serializer.data.get("template_dom_tree")
-            print(template_data, template_data.get("link"))
+            template_data = template_instance.template_dom_tree
+            html_body = template_data.get("body")[0]
+            parsed_html_body_children = parse_dom_tree(html_body).get("children")[0]
 
-            if template_data:
+            if template_data and parsed_html_body_children:
                 sections = self.get_section(template_data)
 
                 try:
@@ -102,30 +67,38 @@ class Project(APIView):
                         project_instance = PortfolioProject.objects.create(
                             project_name=serializer.validated_data.get("project_name"),
                             created_by=request.user,
-                            pre_built_template=template,
+                            pre_built_template=template_instance,
                             portfolio_contact_configured_email=request.user.email,
                         )
                         customized_template_instance = (
                             CustomizedTemplate.objects.create(
-                                template=template,
+                                template=template_instance,
                                 portfolio_project=project_instance,
                                 meta=template_data.get("meta"),
                                 links=template_data.get("link"),
                                 scripts=template_data.get("script"),
-                                body=template_data.get("body"),
+                                body=parsed_html_body_children,
                                 style=template_data.get("style"),
                                 css=template_data.get("css"),
                                 js=template_data.get("js"),
                                 sections=sections,
                             )
                         )
-                        project_name = project_instance.project_name
-                        self.create_assests_on_s3(project_name=project_name)
-                        self.configure_user_contact_form(
-                            user_email=request.user.email,
-                            project_name=project_name,
-                            template_name=customized_template_instance.template.template_name,
-                        )
+
+                    bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
+                    project_name = project_instance.project_name
+                    s3_project_instance = S3_Project(
+                        bucket_name=bucket_name, project_name=project_name
+                    )
+                    s3_project_instance.create_assests_on_s3()
+                    s3_project_instance.configure_user_contact_form(
+                        user_email=request.user.email,
+                        template_name=customized_template_instance.template.template_name,
+                    )
+                except GeneralError as error:
+                    return ApiResponse.response_failed(
+                        message=str(error), status=500, success=False
+                    )
                 except Exception as error:
                     print(
                         "This transaction cannot occurred due to an error -> ",
@@ -214,7 +187,7 @@ class UploadTemplate(APIView):
             bucket_name = settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME
 
             try:
-                aws_s3_object = AWS_S3_Service(
+                aws_s3_object = S3_Template(
                     bucket_name=bucket_name, template_name=template_name
                 )
                 aws_s3_object.upload_template_on_s3()
