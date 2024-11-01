@@ -6,6 +6,7 @@ from server.utils.s3 import get_cloudfront_domain
 import os
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
+from django.shortcuts import get_object_or_404
 
 
 class CreateProjectSerializer(serializers.ModelSerializer):
@@ -18,8 +19,12 @@ class CreateProjectSerializer(serializers.ModelSerializer):
 
     def validate_project_name(self, value):
         if PortfolioProject.all_objects.filter(project_name=value).exists():
-            print(PortfolioProject.all_objects.filter(project_name=value))
-            return BaseResponse.error(message="Project with this name already exists")
+            raise ValidationError("A project with this name already exists.")
+        return value
+
+    def validate_template_name(self, value):
+        if not Template.objects.filter(template_name=value).exists():
+            raise ValidationError(f"{value} template does not exist.")
         return value
 
 
