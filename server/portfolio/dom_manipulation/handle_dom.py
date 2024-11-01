@@ -8,6 +8,8 @@ from portfolio.constants import (
     ELEMENT_DEFAULT_CLASS_NAME,
     ELEMENT_IDENTIFIER_PREFIX,
     ELEMENT_IDENTIFIER_VALUE,
+    ELEMENT_CATEGORY,
+    ELEMENT_TYPE,
 )
 import os
 from server.utils.s3 import AWS_S3_Operations, get_cloudfront_domain, download_assets
@@ -302,8 +304,29 @@ def parse_dom_tree(dom_tree):
             dom_tree["attributes"]["class"] = [class_name]
 
         dom_tree["attributes"][ELEMENT_IDENTIFIER_PREFIX] = unique_identifier
+        dom_tree = label_html_elements(dom_tree)
 
     for child in dom_tree["children"]:
         parse_dom_tree(dom_tree=child)
 
     return dom_tree
+
+
+def label_html_elements(elem):
+    # Iterate through the ELEMENT_CATEGORY to find the matching category
+    for _, category_value in ELEMENT_CATEGORY.items():
+        if elem["tag"] in category_value["tag"]:
+            elem["attributes"][ELEMENT_TYPE] = category_value["type"]
+            break  # Found a match, no need to check further
+
+    # Check for any uploadable element
+    if elem["tag"] == "img" or (
+        elem["tag"] == "a" and "download" in elem["attributes"]
+    ):
+        elem["attributes"][ELEMENT_TYPE] = "uploadable"
+
+    # Check if the element has text content
+    if elem.get("text"):
+        elem["attributes"][ELEMENT_TYPE] = "text"
+
+    return elem
