@@ -4,7 +4,9 @@ ASSET_ID_PREFIX = "data-assest-id"
 ASSET_ID_VALUE = "asset"
 ELEMENT_IDENTIFIER_PREFIX = "data-element-id"
 ELEMENT_IDENTIFIER_VALUE = "element"
-ELEMENT_TYPE = 'data-element-type'
+ELEMENT_TYPE = "data-element-type"
+ELEMENT_SUB_TYPE = "data-element-sub-type"
+UPLOADABLE_ELEMENT = "uploadable"
 
 
 DOCUMENT_META_ELEMENTS = ["meta", "link", "script", "title", "style"]
@@ -25,22 +27,26 @@ TEMPLATE_PREVIEW_IMAGE = "preview.png"
 
 # HTML Element Types
 ELEMENT_CATEGORY = {
-    "HEADING": {"type": "heading", "tag": ["h1", "h2", "h3", "h4", "h5", "h6"]},
-    "PARAGRAPH": {"type": "paragraph", "tag": "p"},
-    "LINK": {"type": "link", "tag": "a"},
-    "BUTTON": {"type": "button", "tag": "button"},
-    "SECTION": {"type": "section", "tag": "section"},
-    "CONTAINER": {"type": "container", "tag": "div"},
-    "NAV": {"type": "container", "tag": "nav"},
-    "IMAGE": {"type": "uploadable", "tag": "img"},
-    "VIDEO": {"type": "video", "tag": "video"},
-    "INPUT": {"type": "input", "tag": "input"},
-    "TEXTAREA": {"type": "textarea", "tag": "textarea"},
-    "LABEL": {"type": "label", "tag": "label"},
-    "LIST": {"type": "list", "tag": "li"},
-    "ICON": {"type": "icon", "tag": "i"},
-    "FORM": {"type": "container", "tag": "form"},
-    "UNORDERED_LIST": {"type": "container", "tag": "ul"},
-    "ORDERED_LIST": {"type": "container", "tag": "ol"},
-    "SPAN": {"type": "container", "tag": "span"},
+    "HEADING": {
+        "type": "heading",
+        "sub_type": "text",
+        "tag": ["h1", "h2", "h3", "h4", "h5", "h6"],
+    },
+    "PARAGRAPH": {"type": "paragraph", "sub_type": "text", "tag": "p"},
+    "LINK": {"type": "link", "sub_type": "text", "tag": "a"},
+    "BUTTON": {"type": "button", "sub_type": "text", "tag": "button"},
+    "SECTION": {"type": "section", "sub_type": "", "tag": "section"},
+    "CONTAINER": {"type": "container", "sub_type": "", "tag": "div"},
+    "NAV": {"type": "container", "sub_type": "", "tag": "nav"},
+    "IMAGE": {"type": "uploadable", "sub_type": "", "tag": "img"},
+    "VIDEO": {"type": "video", "sub_type": "", "tag": "video"},
+    "INPUT": {"type": "input", "sub_type": "", "tag": "input"},
+    "TEXTAREA": {"type": "textarea", "sub_type": "", "tag": "textarea"},
+    "LABEL": {"type": "label", "sub_type": "text", "tag": "label"},
+    "LIST": {"type": "container", "sub_type": "", "tag": "li"},
+    "ICON": {"type": "icon", "sub_type": "", "tag": "i"},
+    "FORM": {"type": "container", "sub_type": "", "tag": "form"},
+    "UNORDERED_LIST": {"type": "container", "sub_type": "", "tag": "ul"},
+    "ORDERED_LIST": {"type": "container", "sub_type": "", "tag": "ol"},
+    "SPAN": {"type": "container", "sub_type": "", "tag": "span"},
 }
