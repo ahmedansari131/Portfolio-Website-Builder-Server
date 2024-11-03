@@ -9,8 +9,8 @@ from django.conf import settings
 from server.utils.response import BaseResponse
 import os
 from botocore.exceptions import ClientError
-from rest_framework.exceptions import NotFound, PermissionDenied
 from django.shortcuts import get_object_or_404
+from portfolio.constants import S3_ASSETS_FOLDER_NAME
 
 
 def get_object_or_404_with_permission(view, queryset, pk):
@@ -38,8 +38,8 @@ def upload_project_file_on_s3_project(file, project_folder_name, new_file_name):
     try:
         # Check if the object exists in S3
         s3_client.head_object(Bucket=bucket_name, Key=file_s3_path)
+
         # If it exists, delete it
-        print(f"{file_s3_path} already exists. Deleting it.")
         s3_client.delete_object(Bucket=bucket_name, Key=file_s3_path)
     except ClientError as error:
         # Check if the error is because the object does not exist
@@ -66,10 +66,10 @@ def upload_project_file_on_s3_project(file, project_folder_name, new_file_name):
         invalidate_cloudfront_cache(
             project_name=project_folder_name, file_name=new_file_name + file_extension
         )
-        # distribution_id = os.environ.get("DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID")
+        distribution_id = os.environ.get("DEPLOYED_SITE_CLOUDFRONT_DISTRIBUION_ID")
+        cloudfront_domain = get_cloudfront_domain(distribution_id=distribution_id)
 
-        uploaded_file_sub_path = f"assests/{new_file_name}{file_extension}"
-        url = f'https://{project_folder_name}.{os.environ.get("DOMAIN_NAME")}/{uploaded_file_sub_path}'
+        url = f"https://{cloudfront_domain}/{project_folder_name}/{S3_ASSETS_FOLDER_NAME}/{new_file_name}"
         return {"image_s3_url": url}
     except Exception as error:
         print("Error occurred while uploading the project image on s3 -> ", error)
