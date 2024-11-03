@@ -10,6 +10,8 @@ from portfolio.constants import (
     ELEMENT_IDENTIFIER_VALUE,
     ELEMENT_CATEGORY,
     ELEMENT_TYPE,
+    UPLOADABLE_ELEMENT,
+    ELEMENT_SUB_TYPE,
 )
 import os
 from server.utils.s3 import AWS_S3_Operations, get_cloudfront_domain, download_assets
@@ -137,17 +139,13 @@ def handle_anchor_element(anchor_tag, template_name):
                 bucket_name=bucket_name, old_s3_asset_key=old_s3_asset_key
             )
 
-            domain_name = os.environ.get("DOMAIN_NAME")
             template_cloudfront_domain = get_cloudfront_domain(
                 distribution_id=os.environ.get(
                     "PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID"
                 )
             )
 
-            if domain_name:
-                anchor_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-            else:
-                anchor_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
+            anchor_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
 
             anchor_tag["href"] = anchor_path
     return anchor_tag
@@ -183,17 +181,13 @@ def handle_image_source(img_tag, template_name):
             )
 
         image_path = ""
-        domain_name = os.environ.get("DOMAIN_NAME")
         template_cloudfront_domain = get_cloudfront_domain(
             distribution_id=os.environ.get(
                 "PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID"
             )
         )
 
-        if domain_name:
-            image_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-        else:
-            image_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
+        image_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
         img_tag["src"] = image_path
 
     return img_tag
@@ -313,20 +307,27 @@ def parse_dom_tree(dom_tree):
 
 
 def label_html_elements(elem):
-    # Iterate through the ELEMENT_CATEGORY to find the matching category
     for _, category_value in ELEMENT_CATEGORY.items():
+
         if elem["tag"] in category_value["tag"]:
             elem["attributes"][ELEMENT_TYPE] = category_value["type"]
-            break  # Found a match, no need to check further
+
+            # Assignin sub type of the element
+            if category_value["sub_type"]:
+                elem["attributes"][ELEMENT_SUB_TYPE] = category_value["sub_type"]
+
+            break
 
     # Check for any uploadable element
-    if elem["tag"] == "img" or (
-        elem["tag"] == "a" and "download" in elem["attributes"]
-    ):
-        elem["attributes"][ELEMENT_TYPE] = "uploadable"
+    if ASSET_ID_PREFIX in elem["attributes"]:
+        elem["attributes"][ELEMENT_TYPE] = UPLOADABLE_ELEMENT
 
     # Check if the element has text content
-    if elem.get("text"):
-        elem["attributes"][ELEMENT_TYPE] = "text"
+    if (
+        elem["text"]
+        and not elem["attributes"].get(ELEMENT_SUB_TYPE)
+        and not elem["attributes"].get(ELEMENT_SUB_TYPE) == "text"
+    ):
+        elem["attributes"][ELEMENT_SUB_TYPE] = "text"
 
     return elem
