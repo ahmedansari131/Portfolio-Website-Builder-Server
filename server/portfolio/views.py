@@ -31,10 +31,12 @@ from server.email import BaseEmail
 from portfolio.cloud_functions.s3 import S3_Template, S3_Project
 from portfolio.exceptions.exceptions import GeneralError, DataNotPresent
 from portfolio.dom_manipulation.handle_dom import parse_dom_tree
+from server.renderers import CustomJSONRenderer
 
 
 class Project(APIView):
     permission_classes = [IsAuthenticated]
+    renderer_classes = [CustomJSONRenderer]
 
     def get_section(self, template_data):
         sections = []
