@@ -68,6 +68,9 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "EXCEPTION_HANDLER": "server.utils.exception_handler.custom_exception_handler",
+    "DEFAULT_RENDERER_CLASSES": [
+        "server.renderers.CustomJSONRenderer",  # Your custom renderer if any
+    ],
 }
 
 WSGI_APPLICATION = "server.wsgi.application"
