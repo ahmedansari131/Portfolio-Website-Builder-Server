@@ -6,7 +6,6 @@ class CustomJSONRenderer(renderers.JSONRenderer):
     charset = "UTF-8"
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
-        print("IN RENDERERS -> ", data)
         # Check if data is None, which can happen on some responses
         if data is None:
             return json.dumps({"message": "No data available"}).encode(self.charset)
