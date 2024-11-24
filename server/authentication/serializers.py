@@ -5,6 +5,12 @@ from django.db.models import Q
 from server.utils.response import BaseResponse
 
 
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["username", "email", "profile_image", "is_active"]
+
+
 class UserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(max_length=100)
     password = serializers.CharField(
@@ -25,12 +31,12 @@ class UserSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def validate(self, data):
-        if not data.get("is_terms_agree"):
+    def validate_is_terms_agree(self, value):
+        if not value:
             raise serializers.ValidationError(
                 "Terms and conditions must be agreed before registering"
             )
-        return data
+        return value
 
     def to_internal_value(self, data):
         email = data.get("email")
@@ -69,11 +75,20 @@ class LoginSerializer(serializers.ModelSerializer):
         try:
             user = User.objects.get(Q(email=identifier) | Q(username=identifier))
         except User.DoesNotExist:
-            return {"message": {"identifier": "User does not exist"}}
+            raise serializers.ValidationError(
+                {"identifier": "User does not exist with this email or username."}
+            )
+        except Exception as error:
+            raise serializers.ValidationError(
+                {
+                    "error": "An unexpected error occurred. Please contact support or try again in some time."
+                }
+            )
 
         if user and not user.check_password(password):
-            return {"message": {"password": "Incorrect password"}}
-        print(request.user)
+            raise serializers.ValidationError(
+                {"password": "Password entered is incorrect."}
+            )
         return user
 
     def validate_identifier(self, value):
@@ -87,18 +102,19 @@ class LoginSerializer(serializers.ModelSerializer):
         identifier = data.get("identifier")
         password = data.get("password")
         request = self.context.get("request")
-        user = None
 
         authenticated_user = self.authenticate(
             request=request, identifier=identifier, password=password
         )
 
-        if not isinstance(authenticated_user, User):
-            return BaseResponse.error(message=authenticated_user.get("message"))
+        if not authenticated_user:
+            raise serializers.ValidationError(
+                {
+                    "error": "An unexpected error occurred. Please contact support or try again in some time."
+                }
+            )
 
-        user = authenticated_user
-
-        data["user"] = user
+        data["user"] = authenticated_user
         return data
 
 
@@ -151,18 +167,22 @@ class ForgotPasswordRequestSerializer(serializers.ModelSerializer):
         model = User
         fields = ["identifier"]
 
-    def validate(self, data):
-        identifier = data.get("identifier")
-
+    def validate_identifier(self, value):
         try:
-            user = User.objects.get(Q(email=identifier) | Q(username=identifier))
+            user = User.objects.get(Q(email=value) | Q(username=value))
+            self.user_instance = user
         except User.DoesNotExist:
-            return {"message": {"identifier": "User does not exist"}}
+            raise serializers.ValidationError(
+                "User does not exist with this email or username"
+            )
         except Exception as error:
             raise serializers.ValidationError(error)
 
-        data["user"] = user
-        return data
+        return value
+
+    def validate(self, attrs):
+        attrs["user"] = self.user_instance
+        return attrs
 
 
 class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):
