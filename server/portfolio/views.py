@@ -32,6 +32,17 @@ from portfolio.cloud_functions.s3 import S3_Template, S3_Project
 from portfolio.exceptions.exceptions import GeneralError, DataNotPresent
 from portfolio.dom_manipulation.handle_dom import parse_dom_tree
 from server.renderers import CustomJSONRenderer
+from portfolio.constants import (
+    INDEX_FILE,
+    RESPONSIVE_STYLE_FILE,
+    UNIVERSAL_STYLE_FILE,
+    ROOT_JS_FILE,
+    EMAIL_JS_FILE,
+    S3_JS_FOLDER_NAME,
+    S3_CSS_FOLDER_NAME,
+    S3_ASSETS_FOLDER_NAME,
+    ROOT_STYLE_FILE,
+)
 
 
 class Project(APIView):
@@ -296,28 +307,24 @@ class UpdateCustomizeTemplate(APIView):
 
     def post(self, request):
         data = request.data
-        customized_template_id = data.get("customized_template_id", None)
-        customized_template_body = data.get("body", None)
-        customized_template_style = data.get("style", None)
+        project_template_id = data.get("project_template_id", None)
+        project_template_body = data.get("body", None)
 
-        if not customized_template_id:
+        if not project_template_id:
             return ApiResponse.response_failed(
                 message="Custom template id is not found", success=False, status=404
             )
 
         try:
-            customized_template = self.get_object(pk=customized_template_id)
+            customized_template = self.get_object(pk=project_template_id)
 
             if not customized_template:
                 return ApiResponse.response_failed(
                     status=404, message="Project not found", success=False
                 )
 
-            if customized_template_style:
-                customized_template.style = customized_template_style
-
-            if customized_template_body:
-                customized_template.body = customized_template_body
+            if project_template_body:
+                customized_template.body = project_template_body
 
             customized_template.save()
 
@@ -390,6 +397,7 @@ class Deployment(APIView):
 
     def parse_element(self, elements, soup, parent=None):
         top_level_elements = []
+
         for element in elements:
             tag_name = element.get("tag").lower()
             new_tag = soup.new_tag(tag_name)
@@ -481,25 +489,35 @@ class Deployment(APIView):
     def extract_template_css(self, s3_client, template_name):
         try:
             css_response = {}
-            cssData = [
-                {"file": "style.css"},
-                {"file": "responsive.css"},
-                {"file": "body-styles.css"},
-            ]
+            # cssData = [
+            #     {"file": ROOT_STYLE_FILE},
+            #     {"file": RESPONSIVE_STYLE_FILE},
+            #     {"file": UNIVERSAL_STYLE_FILE},
+            # ]
+            cssFiles = [ROOT_STYLE_FILE, RESPONSIVE_STYLE_FILE, UNIVERSAL_STYLE_FILE]
 
-            for data in cssData:
+            for file in cssFiles:
                 response = s3_client.get_object(
                     Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
-                    Key=f'{template_name}/css/{data["file"]}',
+                    Key=f"{template_name}/{S3_CSS_FOLDER_NAME}/{file}",
                 )
                 css = response["Body"].read().decode("utf-8")
-                if data["file"] == "style.css":
-                    css_response["template_css"] = css
-                elif data["file"] == "responsive.css":
-                    css_response["template_responsive_css"] = css
-                elif data["file"] == "body-styles.css":
-                    css_response["template_body_css"] = css
+                css_response[file] = css
 
+            # for data in cssData:
+            #     response = s3_client.get_object(
+            #         Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
+            #         Key=f'{template_name}/{S3_CSS_FOLDER_NAME}/{data["file"]}',
+            #     )
+            #     css = response["Body"].read().decode("utf-8")
+            #     if data["file"] == ROOT_STYLE_FILE:
+            #         css_response["template_css"] = css
+            #     elif data["file"] == "responsive.css":
+            #         css_response["template_responsive_css"] = css
+            #     elif data["file"] == "universal-style.css":
+            #         css_response["template_universal_css"] = css
+
+            print(" \n in extract tempalte css -> ", json.dumps(css_response, indent=2))
             return css_response
 
         except Exception as error:
@@ -510,14 +528,23 @@ class Deployment(APIView):
         try:
             js_response = {}
             js_data = [{"file": "script.js"}]
+            js_files = [ROOT_JS_FILE, EMAIL_JS_FILE]
 
-            for data in js_data:
+            for file in js_files:
                 response = s3_client.get_object(
                     Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
-                    Key=f'{template_name}/js/{data["file"]}',
+                    Key=f"{template_name}/{S3_JS_FOLDER_NAME}/{file}",
                 )
                 js = response["Body"].read().decode("utf-8")
-                js_response["template_js"] = js
+                js_response[file] = js
+
+            # for data in js_data:
+            #     response = s3_client.get_object(
+            #         Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME,
+            #         Key=f'{template_name}/js/{data["file"]}',
+            #     )
+            #     js = response["Body"].read().decode("utf-8")
+            #     js_response["template_js"] = js
 
             return js_response
 
@@ -555,7 +582,7 @@ class Deployment(APIView):
             )
 
         meta_data = serializer.data.get("meta")
-        body = serializer.data.get("body")
+        body = [serializer.data.get("body")]
         links = serializer.data.get("links")
         style = serializer.data.get("style")
         script = serializer.data.get("scripts")
@@ -587,38 +614,45 @@ class Deployment(APIView):
             s3_client=s3_client, template_name=template_name
         )
 
+        print("\n css response -> ", json.dumps(css_response, indent=2))
+
         js_response = self.extract_template_js(
             s3_client=s3_client, template_name=template_name
         )
-        merged_css = css_response["template_css"] + "\n" + custom_css
+        merged_css = css_response[ROOT_STYLE_FILE] + "\n" + custom_css
 
         bucket_name = settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME
         project_name = s3_name_format(project_name)
         content_to_upload = [
             {
-                "file_name": "index.html",
+                "file_name": INDEX_FILE,
                 "content_type": "text/html",
                 "file_content": str(html),
             },
             {
-                "file_name": "css/style.css",
+                "file_name": f"{S3_CSS_FOLDER_NAME}/{ROOT_STYLE_FILE}",
                 "content_type": "text/css",
                 "file_content": str(merged_css),
             },
             {
-                "file_name": "css/responsive.css",
+                "file_name": f"{S3_CSS_FOLDER_NAME}/{RESPONSIVE_STYLE_FILE}",
                 "content_type": "text/css",
-                "file_content": str(css_response["template_responsive_css"]),
+                "file_content": str(css_response[RESPONSIVE_STYLE_FILE]),
             },
             {
-                "file_name": "css/body-styles.css",
+                "file_name": f"{S3_CSS_FOLDER_NAME}/{UNIVERSAL_STYLE_FILE}",
                 "content_type": "text/css",
-                "file_content": str(css_response["template_body_css"]),
+                "file_content": str(css_response[UNIVERSAL_STYLE_FILE]),
             },
             {
-                "file_name": "js/script.js",
+                "file_name": f"{S3_JS_FOLDER_NAME}/{ROOT_JS_FILE}",
                 "content_type": "application/javascript",
-                "file_content": str(js_response["template_js"]),
+                "file_content": str(js_response[ROOT_JS_FILE]),
+            },
+            {
+                "file_name": f"{S3_JS_FOLDER_NAME}/{EMAIL_JS_FILE}",
+                "content_type": "application/javascript",
+                "file_content": str(js_response[EMAIL_JS_FILE]),
             },
         ]
 
