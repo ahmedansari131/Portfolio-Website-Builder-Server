@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "authentication",
     "portfolio",
     "rest_framework",
+    "social_django",
     "corsheaders",
     "storages",
 ]
@@ -65,13 +66,20 @@ TEMPLATES = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "authentication.custom_authentication.CookieJWTAuthentication",
+        # "social_django.authentication.SocialAuthentication",
     ),
     "EXCEPTION_HANDLER": "server.utils.exception_handler.custom_exception_handler",
     "DEFAULT_RENDERER_CLASSES": [
         "server.renderers.CustomJSONRenderer",  # Your custom renderer if any
     ],
 }
+
+AUTHENTICATION_BACKENDS = (
+    "social_core.backends.google.GoogleOAuth2",  # For Google OAuth
+    "django.contrib.auth.backends.ModelBackend",  # For Default Django Authentication
+)
+
 
 WSGI_APPLICATION = "server.wsgi.application"
 
@@ -175,6 +183,23 @@ EMAIL_HOST = "sandbox.smtp.mailtrap.io"
 EMAIL_HOST_USER = os.environ.get("HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("HOST_PASSWORD")
 EMAIL_PORT = os.environ.get("EMAIL_PORT")
+
+
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('GOOGLE_OAUTH2_SECRET')
+
+SOCIAL_AUTH_LOGGER = 'social'
+SOCIAL_AUTH_LOG_LEVEL = 'DEBUG'
+
+
+# Login redirect URL (can be the frontend URL after successful login)
+LOGIN_REDIRECT_URL = "/"
+SOCIAL_AUTH_REDIRECT_IS_HTTPS = False  # Set to True in production if using HTTPS
+
+SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
+SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = ['first_name', 'last_name', 'picture']
+
+
 
 
 # FOR PRODUCTION ->
