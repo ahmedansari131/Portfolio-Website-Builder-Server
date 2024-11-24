@@ -7,6 +7,11 @@ from django.contrib.auth.models import (
 from cloudinary.models import CloudinaryField
 
 
+class Provider(models.TextChoices):
+    GOOGLE = "google", "Google"
+    EMAIL = "email_password", "Email/Password"
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, username, password=None):
         if not email:
@@ -40,14 +45,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         max_length=100,
         unique=True,
     )
-    username = models.CharField(max_length=50)
+    username = models.CharField(max_length=50, unique=True)
     is_active = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
     profile_image = CloudinaryField(
         "Profile image", default="", folder="portfolio_website_builder/profile_image/"
     )
     refresh_token = models.TextField(null=True)
-    is_terms_agree = models.BooleanField(default=False, null=True)
+    is_terms_agree = models.BooleanField(default=False, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
