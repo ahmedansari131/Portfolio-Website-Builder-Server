@@ -7,7 +7,6 @@ from .views import (
     ForgotPasswordRequest,
     UserProfile,
     UserSignout,
-    UserToken,
     CheckUsernameAvailability,
     ForgotPasswordConfirmation,
     DirectSignin,
@@ -48,7 +47,6 @@ urlpatterns = [
     path("change-password/", ForgotPasswordRequest.as_view(), name="change_password"),
     path("user/", UserProfile.as_view(), name="user_identity"),
     path("signout/", UserSignout.as_view(), name="signout"),
-    path("get-user-token/", UserToken.as_view(), name="user_token"),
     path(
         "check-username-availability/",
         CheckUsernameAvailability.as_view(),
