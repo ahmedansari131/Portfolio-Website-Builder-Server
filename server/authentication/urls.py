@@ -12,6 +12,7 @@ from .views import (
     ForgotPasswordConfirmation,
     DirectSignin,
     VerifyValidForgotPasswordRequest,
+    GoogleLogin
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -53,4 +54,5 @@ urlpatterns = [
         CheckUsernameAvailability.as_view(),
         name="check_username",
     ),
+    path('google-auth/', GoogleLogin.as_view()),
 ]
