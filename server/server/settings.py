@@ -117,11 +117,7 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-STATIC_URL = "static/"
-
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-MEDIA_URL = "/media/"
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
@@ -157,21 +153,41 @@ SIMPLE_JWT = {
     "SLIDING_TOKEN_REFRESH_SERIALIZER": "rest_framework_simplejwt.serializers.TokenRefreshSlidingSerializer",
 }
 
-cloudinary.config(
-    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.environ.get("CLOUDINARY_API_KEY"),
-    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
-)
+
+STATIC_URL = f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/static/"
+MEDIA_URL = f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/media/"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "bucket_name": os.environ.get("S3_PROJECT_BUCKET_NAME"),
+            "default_acl": "private",
+            "location": "media",
+            "custom_domain": f"{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net",
+        },
+    },
+    "staticfiles": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "bucket_name": os.environ.get("S3_PROJECT_BUCKET_NAME"),
+            "location": "static",
+            "custom_domain": f"{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net",
+        },
+    },
+}
 
 
 AWS_ACCESS_KEY_ID = os.environ.get("S3_SECRET_ACCESS_KEY")
 AWS_SECRET_ACCESS_KEY = os.environ.get("S3_KEY_ID")
+AWS_S3_REGION_NAME = os.environ.get("S3_REGION_NAME")
+
+
+# Additional buckets for templates and portfolio sites
 AWS_STORAGE_TEMPLATE_BUCKET_NAME = os.environ.get("S3_TEMPLATE_BUCKET_NAME")
 AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME = os.environ.get("S3_DEPLOYED_BUCKET_NAME")
-AWS_S3_REGION_NAME = os.environ.get("S3_REGION_NAME")
-DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 
-
+# Prebuilt tempalte local path
 TEMPLATES_BASE_DIR = "D:\Learnings\Web Development Projects\Templates"
 
 
@@ -185,21 +201,19 @@ EMAIL_HOST_PASSWORD = os.environ.get("HOST_PASSWORD")
 EMAIL_PORT = os.environ.get("EMAIL_PORT")
 
 
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID')
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get('GOOGLE_OAUTH2_SECRET')
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_CLIENT_ID")
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET")
 
-SOCIAL_AUTH_LOGGER = 'social'
-SOCIAL_AUTH_LOG_LEVEL = 'DEBUG'
+SOCIAL_AUTH_LOGGER = "social"
+SOCIAL_AUTH_LOG_LEVEL = "DEBUG"
 
 
 # Login redirect URL (can be the frontend URL after successful login)
 LOGIN_REDIRECT_URL = "/"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = False  # Set to True in production if using HTTPS
 
-SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ['email', 'profile']
-SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = ['first_name', 'last_name', 'picture']
-
-
+SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ["email", "profile"]
+SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = ["first_name", "last_name", "picture"]
 
 
 # FOR PRODUCTION ->
