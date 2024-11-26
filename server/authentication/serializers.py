@@ -2,27 +2,59 @@ from rest_framework import serializers
 from .models import User, PasswordReset
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db.models import Q
-from server.utils.response import BaseResponse
+import random
+from .constants import PROFILE_PLACEHOLDER_COLORS
+
+
+def generate_user_initials(username):
+    if not username:
+        return "U"
+    parts = username.split()
+    if len(parts) > 1:
+        return f"{parts[0][0].upper()}{parts[-1][0].upper()}"
+    return username[0].upper()
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    user_initials = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["username", "email", "profile_image", "is_active"]
+        fields = [
+            "username",
+            "email",
+            "profile_image",
+            "is_active",
+            "profile_placeholder_color_code",
+            "user_initials",
+        ]
+
+    def get_user_initials(self, obj):
+        return generate_user_initials(obj.username)
 
 
 class UserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(max_length=100)
-    password = serializers.CharField(
-        write_only=True
-    )  # Excluded when returning the user
+    password = serializers.CharField(write_only=True)
     profile_image = serializers.ImageField(required=False)
     username = serializers.CharField(required=True)
     is_terms_agree = serializers.BooleanField(default=False, write_only=True)
+    user_initials = serializers.SerializerMethodField()
+    profile_placeholder_color_code = serializers.CharField(
+        required=False, read_only=True
+    )
 
     class Meta:
         model = User
-        fields = ["email", "username", "password", "profile_image", "is_terms_agree"]
+        fields = [
+            "email",
+            "username",
+            "password",
+            "profile_image",
+            "is_terms_agree",
+            "user_initials",
+            "profile_placeholder_color_code",
+        ]
 
     def validate_password(self, value):
         if len(value) < 8:
@@ -45,12 +77,18 @@ class UserSerializer(serializers.ModelSerializer):
 
         return super().to_internal_value(data)
 
+    def get_user_initials(self, obj):
+        return generate_user_initials(obj.username)
+
     def create(self, validated_data):
         profile_image = validated_data.pop("profile_image", None)
         password = validated_data.pop("password", None)
 
         if not password:
             raise serializers.ValidationError("Password is required")
+
+        color_code = random.choice(PROFILE_PLACEHOLDER_COLORS)
+        validated_data["profile_placeholder_color_code"] = color_code
 
         user = User(**validated_data)
         user.profile_image = profile_image
