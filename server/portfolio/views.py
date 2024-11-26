@@ -278,13 +278,9 @@ class ListPortfolioProject(APIView):
     def get(self, request):
         try:
             projects = PortfolioProject.objects.filter(created_by=request.user)
-            if not projects:
-                return ApiResponse.response_failed(
-                    message="No project found", status=404, success=False
-                )
             serializer = ListPortfolioProjectSerializer(projects, many=True)
             return ApiResponse.response_succeed(
-                message="Project found", data=serializer.data, status=200
+                message="Success", data=serializer.data, status=200
             )
 
         except Exception as error:
