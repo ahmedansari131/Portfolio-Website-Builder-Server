@@ -257,6 +257,8 @@ class UploadTemplate(APIView):
 
 
 class ListTemplates(APIView):
+    authentication_classes = []
+
     def get(self, request):
         try:
             templates = Template.objects.all()
