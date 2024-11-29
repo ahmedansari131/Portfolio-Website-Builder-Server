@@ -67,7 +67,6 @@ TEMPLATES = [
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "authentication.custom_authentication.CookieJWTAuthentication",
-        # "social_django.authentication.SocialAuthentication",
     ),
     "EXCEPTION_HANDLER": "server.utils.exception_handler.custom_exception_handler",
     "DEFAULT_RENDERER_CLASSES": [
@@ -154,8 +153,12 @@ SIMPLE_JWT = {
 }
 
 
-STATIC_URL = f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/static/"
-MEDIA_URL = f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/media/"
+STATIC_URL = (
+    f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/static/"
+)
+MEDIA_URL = (
+    f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/media/"
+)
 
 STORAGES = {
     "default": {
@@ -201,19 +204,9 @@ EMAIL_HOST_PASSWORD = os.environ.get("HOST_PASSWORD")
 EMAIL_PORT = os.environ.get("EMAIL_PORT")
 
 
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.environ.get("GOOGLE_OAUTH2_CLIENT_ID")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET")
-
-SOCIAL_AUTH_LOGGER = "social"
-SOCIAL_AUTH_LOG_LEVEL = "DEBUG"
-
-
-# Login redirect URL (can be the frontend URL after successful login)
-LOGIN_REDIRECT_URL = "/"
-SOCIAL_AUTH_REDIRECT_IS_HTTPS = False  # Set to True in production if using HTTPS
-
-SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = ["email", "profile"]
-SOCIAL_AUTH_GOOGLE_OAUTH2_EXTRA_DATA = ["first_name", "last_name", "picture"]
+# OAuth Config
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_OAUTH2_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET")
 
 
 # FOR PRODUCTION ->
