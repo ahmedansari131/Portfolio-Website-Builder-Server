@@ -7,11 +7,11 @@ from .views import (
     ForgotPasswordRequest,
     UserProfile,
     UserSignout,
-    UserToken,
     CheckUsernameAvailability,
     ForgotPasswordConfirmation,
     DirectSignin,
     VerifyValidForgotPasswordRequest,
+    GoogleOAuthView
 )
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -47,10 +47,10 @@ urlpatterns = [
     path("change-password/", ForgotPasswordRequest.as_view(), name="change_password"),
     path("user/", UserProfile.as_view(), name="user_identity"),
     path("signout/", UserSignout.as_view(), name="signout"),
-    path("get-user-token/", UserToken.as_view(), name="user_token"),
     path(
         "check-username-availability/",
         CheckUsernameAvailability.as_view(),
         name="check_username",
     ),
+    path('google/', GoogleOAuthView.as_view(), name='google_auth'),
 ]

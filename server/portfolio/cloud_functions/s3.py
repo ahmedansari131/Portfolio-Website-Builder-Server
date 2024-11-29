@@ -1,11 +1,12 @@
 import os
-from server.utils.s3 import get_cloudfront_domain, S3CLientSingleton
+from server.utils.s3 import get_cloudfront_domain, S3CLientSingleton, s3_name_format
 from portfolio.constants import (
     S3_ASSETS_FOLDER_NAME,
     S3_CSS_FOLDER_NAME,
     S3_JS_FOLDER_NAME,
     INDEX_FILE,
     TEMPLATE_PREVIEW_IMAGE,
+    EMAIL_JS_FILE,
 )
 from portfolio.exceptions.exceptions import TemplateRetrievalError, GeneralError
 from django.conf import settings
@@ -13,7 +14,7 @@ import mimetypes
 from portfolio.dom_manipulation.handle_dom import build_html_using_json
 
 
-class AWS_S3_Service:
+class S3_Template:
 
     def __init__(self, bucket_name, template_name):
         self.s3_client = S3CLientSingleton.get_instance()
@@ -180,3 +181,51 @@ class AWS_S3_Service:
         except Exception as error:
             print("Error occurred while putting the index file on s3 -> ", error)
             raise GeneralError("Error occurred while uploading the html file on cloud")
+
+
+class S3_Project:
+    def __init__(self, bucket_name, project_name):
+        self.s3_client = S3CLientSingleton.get_instance()
+        self.bucket_name = bucket_name
+        self.project_name = project_name
+
+    def create_assests_on_s3(self):
+        s3_formatted_project_name = s3_name_format(self.project_name)
+        project_folder_name = s3_formatted_project_name + f"/{S3_ASSETS_FOLDER_NAME}/"
+        try:
+            self.s3_client.put_object(Bucket=self.bucket_name, Key=project_folder_name)
+        except Exception as error:
+            print(
+                f"Error occurred while creating the asset folder on s3 for project -> {self.project_name}",
+                error,
+            )
+            raise GeneralError("Error occurred while creating the project assets")
+
+    def configure_user_contact_form(self, user_email, template_name):
+        s3_formatted_template_name = s3_name_format(template_name)
+        s3_formatted_project_name = s3_name_format(self.project_name)
+        
+        TEMPLATE_JS_OBJECT_KEY = (
+            f"{s3_formatted_template_name}/{S3_JS_FOLDER_NAME}/{EMAIL_JS_FILE}"
+        )
+        PROJECT_JS_OBJECT_KEY = (
+            f"{s3_formatted_project_name}/{S3_JS_FOLDER_NAME}/{EMAIL_JS_FILE}"
+        )
+
+        response = self.s3_client.get_object(
+            Bucket=settings.AWS_STORAGE_TEMPLATE_BUCKET_NAME, Key=TEMPLATE_JS_OBJECT_KEY
+        )
+        js_code = (
+            response["Body"].read().decode("utf-8")
+        )  # Read and decode the JS content
+
+        # Step 2: Replace the placeholder with the actual email
+        modified_js_code = js_code.replace("{{USER_EMAIL}}", user_email, 1)
+
+        # Step 3: Upload the modified JS file back to S3
+        self.s3_client.put_object(
+            Bucket=settings.AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME,
+            Key=PROJECT_JS_OBJECT_KEY,
+            Body=modified_js_code,
+            ContentType="application/javascript",
+        )

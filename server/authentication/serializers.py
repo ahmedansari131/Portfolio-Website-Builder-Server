@@ -2,21 +2,59 @@ from rest_framework import serializers
 from .models import User, PasswordReset
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.db.models import Q
-from server.utils.response import BaseResponse
+import random
+from .constants import PROFILE_PLACEHOLDER_COLORS
+
+
+def generate_user_initials(username):
+    if not username:
+        return "U"
+    parts = username.split()
+    if len(parts) > 1:
+        return f"{parts[0][0].upper()}{parts[-1][0].upper()}"
+    return username[0].upper()
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    user_initials = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "email",
+            "profile_image",
+            "is_active",
+            "profile_placeholder_color_code",
+            "user_initials",
+        ]
+
+    def get_user_initials(self, obj):
+        return generate_user_initials(obj.username)
 
 
 class UserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(max_length=100)
-    password = serializers.CharField(
-        write_only=True
-    )  # Excluded when returning the user
+    password = serializers.CharField(write_only=True)
     profile_image = serializers.ImageField(required=False)
     username = serializers.CharField(required=True)
     is_terms_agree = serializers.BooleanField(default=False, write_only=True)
+    user_initials = serializers.SerializerMethodField()
+    profile_placeholder_color_code = serializers.CharField(
+        required=False, read_only=True
+    )
 
     class Meta:
         model = User
-        fields = ["email", "username", "password", "profile_image", "is_terms_agree"]
+        fields = [
+            "email",
+            "username",
+            "password",
+            "profile_image",
+            "is_terms_agree",
+            "user_initials",
+            "profile_placeholder_color_code",
+        ]
 
     def validate_password(self, value):
         if len(value) < 8:
@@ -25,12 +63,12 @@ class UserSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def validate(self, data):
-        if not data.get("is_terms_agree"):
+    def validate_is_terms_agree(self, value):
+        if not value:
             raise serializers.ValidationError(
                 "Terms and conditions must be agreed before registering"
             )
-        return data
+        return value
 
     def to_internal_value(self, data):
         email = data.get("email")
@@ -39,12 +77,18 @@ class UserSerializer(serializers.ModelSerializer):
 
         return super().to_internal_value(data)
 
+    def get_user_initials(self, obj):
+        return generate_user_initials(obj.username)
+
     def create(self, validated_data):
         profile_image = validated_data.pop("profile_image", None)
         password = validated_data.pop("password", None)
 
         if not password:
             raise serializers.ValidationError("Password is required")
+
+        color_code = random.choice(PROFILE_PLACEHOLDER_COLORS)
+        validated_data["profile_placeholder_color_code"] = color_code
 
         user = User(**validated_data)
         user.profile_image = profile_image
@@ -69,11 +113,20 @@ class LoginSerializer(serializers.ModelSerializer):
         try:
             user = User.objects.get(Q(email=identifier) | Q(username=identifier))
         except User.DoesNotExist:
-            return {"message": {"identifier": "User does not exist"}}
+            raise serializers.ValidationError(
+                {"identifier": "User does not exist with this email or username."}
+            )
+        except Exception as error:
+            raise serializers.ValidationError(
+                {
+                    "error": "An unexpected error occurred. Please contact support or try again in some time."
+                }
+            )
 
         if user and not user.check_password(password):
-            return {"message": {"password": "Incorrect password"}}
-        print(request.user)
+            raise serializers.ValidationError(
+                {"password": "Password entered is incorrect."}
+            )
         return user
 
     def validate_identifier(self, value):
@@ -87,18 +140,19 @@ class LoginSerializer(serializers.ModelSerializer):
         identifier = data.get("identifier")
         password = data.get("password")
         request = self.context.get("request")
-        user = None
 
         authenticated_user = self.authenticate(
             request=request, identifier=identifier, password=password
         )
 
-        if not isinstance(authenticated_user, User):
-            return BaseResponse.error(message=authenticated_user.get("message"))
+        if not authenticated_user:
+            raise serializers.ValidationError(
+                {
+                    "error": "An unexpected error occurred. Please contact support or try again in some time."
+                }
+            )
 
-        user = authenticated_user
-
-        data["user"] = user
+        data["user"] = authenticated_user
         return data
 
 
@@ -151,18 +205,22 @@ class ForgotPasswordRequestSerializer(serializers.ModelSerializer):
         model = User
         fields = ["identifier"]
 
-    def validate(self, data):
-        identifier = data.get("identifier")
-
+    def validate_identifier(self, value):
         try:
-            user = User.objects.get(Q(email=identifier) | Q(username=identifier))
+            user = User.objects.get(Q(email=value) | Q(username=value))
+            self.user_instance = user
         except User.DoesNotExist:
-            return {"message": {"identifier": "User does not exist"}}
+            raise serializers.ValidationError(
+                "User does not exist with this email or username"
+            )
         except Exception as error:
             raise serializers.ValidationError(error)
 
-        data["user"] = user
-        return data
+        return value
+
+    def validate(self, attrs):
+        attrs["user"] = self.user_instance
+        return attrs
 
 
 class ForgotPasswordConfirmationSerializer(serializers.ModelSerializer):

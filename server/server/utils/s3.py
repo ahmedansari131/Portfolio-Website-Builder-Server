@@ -5,6 +5,7 @@ import time
 from portfolio.constants import S3_ASSETS_FOLDER_NAME
 from portfolio.exceptions.exceptions import GeneralError
 import requests
+import threading
 
 
 def s3_config():
@@ -23,11 +24,14 @@ def s3_config():
 
 class S3CLientSingleton:
     _instance = None  # Private class-level variable to hold the S3 client instance
+    _lock = threading.Lock()  # Lock to ensure thread safety
 
     @classmethod
     def get_instance(cls):
         if cls._instance is None:
-            cls._instance = s3_config()
+            with cls._lock:
+                if cls.get_instance is None:
+                    cls._instance = s3_config()
         return cls._instance
 
 
@@ -76,7 +80,7 @@ def get_cloudfront_domain(distribution_id):
         domain_name = response["Distribution"]["DomainName"]
         return domain_name
     except Exception as e:
-        print("Error occurred -> ", e)
+        print("Error occurred while getting the cloudfront domain -> ", e)
         return None
 
 

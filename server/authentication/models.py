@@ -4,7 +4,17 @@ from django.contrib.auth.models import (
     AbstractBaseUser,
     PermissionsMixin,
 )
-from cloudinary.models import CloudinaryField
+import os
+
+
+def user_profile_picture_upload_to(instance, filename):
+    # Using the user ID or username for the folder
+    return os.path.join(f"user-{str(instance.id)}", "profile-pictures", filename)
+
+
+class Provider(models.TextChoices):
+    GOOGLE = "google", "Google"
+    EMAIL = "email_password", "Email/Password"
 
 
 class UserManager(BaseUserManager):
@@ -40,16 +50,24 @@ class User(AbstractBaseUser, PermissionsMixin):
         max_length=100,
         unique=True,
     )
-    username = models.CharField(max_length=50)
+    username = models.CharField(max_length=50, unique=True)
     is_active = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
-    profile_image = CloudinaryField(
-        "Profile image", default="", folder="portfolio_website_builder/profile_image/"
+    profile_image = models.ImageField(
+        "Profile image",
+        default="",
+        upload_to=user_profile_picture_upload_to,
+    )
+    profile_placeholder_color_code = models.CharField(
+        max_length=7, null=True, blank=True
     )
     refresh_token = models.TextField(null=True)
-    is_terms_agree = models.BooleanField(default=False, null=True)
+    is_terms_agree = models.BooleanField(default=False, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    provider = models.CharField(
+        max_length=50, choices=Provider.choices, default=Provider.EMAIL
+    )
 
     objects = UserManager()
 

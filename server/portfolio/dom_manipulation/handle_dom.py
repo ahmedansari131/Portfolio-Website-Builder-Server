@@ -5,11 +5,19 @@ from portfolio.constants import (
     ASSET_ID_PREFIX,
     DOCUMENT_META_ELEMENTS,
     INDEX_FILE,
+    ELEMENT_DEFAULT_CLASS_NAME,
+    ELEMENT_IDENTIFIER_PREFIX,
+    ELEMENT_IDENTIFIER_VALUE,
+    ELEMENT_CATEGORY,
+    ELEMENT_TYPE,
+    UPLOADABLE_ELEMENT,
+    ELEMENT_SUB_TYPE,
 )
 import os
 from server.utils.s3 import AWS_S3_Operations, get_cloudfront_domain, download_assets
 from django.conf import settings
 from portfolio.exceptions.exceptions import GeneralError
+from portfolio.utils import generate_random_characters
 
 empty_html_template = """
                         <!DOCTYPE html>
@@ -131,17 +139,13 @@ def handle_anchor_element(anchor_tag, template_name):
                 bucket_name=bucket_name, old_s3_asset_key=old_s3_asset_key
             )
 
-            domain_name = os.environ.get("DOMAIN_NAME")
             template_cloudfront_domain = get_cloudfront_domain(
                 distribution_id=os.environ.get(
                     "PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID"
                 )
             )
 
-            if domain_name:
-                anchor_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-            else:
-                anchor_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
+            anchor_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
 
             anchor_tag["href"] = anchor_path
     return anchor_tag
@@ -177,17 +181,13 @@ def handle_image_source(img_tag, template_name):
             )
 
         image_path = ""
-        domain_name = os.environ.get("DOMAIN_NAME")
         template_cloudfront_domain = get_cloudfront_domain(
             distribution_id=os.environ.get(
                 "PREBUILT_TEMPLATES_CLOUDFRONT_DISTRIBUION_ID"
             )
         )
 
-        if domain_name:
-            image_path = f"{S3_ASSETS_FOLDER_NAME}/{asset_name}"
-        else:
-            image_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
+        image_path = f"https://{template_cloudfront_domain}/{template_name}/{S3_ASSETS_FOLDER_NAME}/{asset_name}"
         img_tag["src"] = image_path
 
     return img_tag
@@ -277,3 +277,57 @@ def parse_local_index_file(template_name):
     except Exception as error:
         print("Error occurred while reading the html file on local -> ", error)
         raise GeneralError("Error occurred while reading the html file on local")
+
+
+def parse_dom_tree(dom_tree):
+    if not dom_tree:
+        raise GeneralError("DOM tree is not provided.")
+
+    # Assign classname and unique identifier
+    class_name = (
+        f"{ELEMENT_DEFAULT_CLASS_NAME}-{generate_random_characters(digits=8)}".lower()
+    )
+    unique_identifier = (
+        f"{ELEMENT_IDENTIFIER_VALUE}-{generate_random_characters(digits=8)}".lower()
+    )
+
+    if not dom_tree["tag"] == "body":
+        if "class" in dom_tree["attributes"]:
+            dom_tree["attributes"]["class"].append(class_name)
+        else:
+            dom_tree["attributes"]["class"] = [class_name]
+
+        dom_tree["attributes"][ELEMENT_IDENTIFIER_PREFIX] = unique_identifier
+        dom_tree = label_html_elements(dom_tree)
+
+    for child in dom_tree["children"]:
+        parse_dom_tree(dom_tree=child)
+
+    return dom_tree
+
+
+def label_html_elements(elem):
+    for _, category_value in ELEMENT_CATEGORY.items():
+
+        if elem["tag"] in category_value["tag"]:
+            elem["attributes"][ELEMENT_TYPE] = category_value["type"]
+
+            # Assignin sub type of the element
+            if category_value["sub_type"]:
+                elem["attributes"][ELEMENT_SUB_TYPE] = category_value["sub_type"]
+
+            break
+
+    # Check for any uploadable element
+    if ASSET_ID_PREFIX in elem["attributes"]:
+        elem["attributes"][ELEMENT_TYPE] = UPLOADABLE_ELEMENT
+
+    # Check if the element has text content
+    if (
+        elem["text"]
+        and not elem["attributes"].get(ELEMENT_SUB_TYPE)
+        and not elem["attributes"].get(ELEMENT_SUB_TYPE) == "text"
+    ):
+        elem["attributes"][ELEMENT_SUB_TYPE] = "text"
+
+    return elem

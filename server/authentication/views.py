@@ -9,11 +9,19 @@ from .serializers import (
     ResetPasswordSerializer,
     ForgotPasswordRequestSerializer,
     ForgotPasswordConfirmationSerializer,
+    UserProfileSerializer,
 )
 from server.response.api_response import ApiResponse
 from django.db import IntegrityError
 from .email import UserVerificationEmail
-from .utils import get_existing_user, verify_simple_jwt, generate_otp, set_cookie_helper
+from .utils import (
+    get_existing_user,
+    generate_otp,
+    set_cookie_helper,
+    is_username_available,
+    GoogleOAuthProvider,
+    GenerateAndSetJWT,
+)
 from .jwt_token import Token, CustomRefreshToken
 import os
 from .serializers import MyTokenObtainPairSerializer
@@ -25,9 +33,14 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from datetime import datetime, timedelta, timezone
+from rest_framework.validators import ValidationError
+from server.renderers import CustomJSONRenderer
+from server.exceptions import CustomAPIException
 
 
 class UserRegistration(APIView):
+    authentication_classes = []
+
     def verification_token(self, user_id, request):
         tokenization = Token(user_id=user_id)
         token = tokenization.generate_token()
@@ -65,7 +78,7 @@ class UserRegistration(APIView):
                     is_user_active = user_exist.is_active
                     if is_user_active:
                         return ApiResponse.response_failed(
-                            message="User already exist. Please login!", status=403
+                            message="User already exist with this email.", status=403
                         )
                     else:
                         verification_link = self.verification_token(
@@ -130,6 +143,8 @@ class UserRegistration(APIView):
 
 
 class UserEmailVerification(APIView):
+    authentication_classes = []
+
     def get(self, request):
         verification_token = request.GET.get("token")
         if verification_token:
@@ -143,60 +158,26 @@ class UserEmailVerification(APIView):
 
 
 class UserLogin(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
     def post(self, request):
         data = request.data
         serializer = LoginSerializer(data=data, context={"request": request})
 
         if serializer.is_valid(raise_exception=True):
             user = serializer.validated_data.get("user")
-            if not user:
-                return ApiResponse.response_failed(
-                    message=serializer.validated_data.get("message"), status=403
-                )
 
-            email = user.email
-            password = serializer.validated_data.get("password")
-
-            token_serializer = MyTokenObtainPairSerializer(
-                data={
-                    "email": email,
-                    "password": password,
-                }
-            )
-
-            if token_serializer.is_valid(raise_exception=True):
-                tokens = token_serializer.validated_data
-                response = JsonResponse({"status": 200})
-
-                access_token_lifetime = timedelta(
-                    minutes=settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()
-                    / 60
-                )
-                refresh_token_lifetime = timedelta(
-                    days=settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].days
-                )
-                cookies = [
-                    {
-                        "key": "access",
-                        "value": tokens.get("access"),
-                        "life": access_token_lifetime,
-                    },
-                    {
-                        "key": "refresh",
-                        "value": tokens.get("refresh"),
-                        "life": refresh_token_lifetime,
-                    },
-                ]
-                response = JsonResponse({"status": 200})
-                for cookie in cookies:
-                    response = set_cookie_helper(
-                        key=cookie["key"],
-                        value=cookie["value"],
-                        life=cookie["life"],
-                        response=response,
-                    )
-
+            try:
+                tokens = GenerateAndSetJWT(user=user)
+                tokens.generate_refresh_token()
+                response = tokens.set_jwt_cookie()
                 return response
+            except CustomAPIException as e:
+                return ApiResponse.response_failed(message=str(e), status=400)
+            except Exception as error:
+                return ApiResponse.response_failed(message=str(error), status=500)
+
         return ApiResponse.response_failed(
             message="Error occurred on server while login", status=500
         )
@@ -298,10 +279,6 @@ class ForgotPasswordRequest(APIView):
 
         if serializer.is_valid(raise_exception=True):
             user = serializer.validated_data.get("user")
-            if not user:
-                return ApiResponse.response_failed(
-                    message=serializer.validated_data.get("message"), status=403
-                )
 
             otp = generate_otp()
             token = default_token_generator.make_token(user)
@@ -506,41 +483,17 @@ class DirectSignin(APIView):
 
 class UserProfile(APIView):
     def get(self, request):
-        cookie = request.COOKIES
-        if not cookie:
-            return ApiResponse.response_failed(
-                message="Please login to proceed further", status=403
-            )
-        try:
-            verified_token = verify_simple_jwt(cookie.get("access"))
-        except Exception as error:
-            return ApiResponse.response_failed(
-                message=str(error),
-                status=403,
-            )
+        user = request.user
 
-        user = get_existing_user(user_id=verified_token.get("user_id"))
-        if isinstance(user, User):
-            user = {
-                "username": user.username,
-                "email": user.email,
-                "user_id": user.id,
-                "profile_img": user.profile_image.url,
-            }
+        if user:
+            serializer = UserProfileSerializer(user)
             return ApiResponse.response_succeed(
-                data=user,
-                status=200,
-            )
-        else:
-            return ApiResponse.response_failed(
-                message=user or "User does not exist", status=404
+                message="User found.", data=serializer.data, status=200, success=True
             )
 
-
-class UserToken(APIView):
-    def get(self, request):
-        cookie = request.COOKIES
-        return JsonResponse({"token": cookie.get("access")})
+        return ApiResponse.response_failed(
+            message="Please sign in to proceed further.", success=False, status=401
+        )
 
 
 class UserSignout(APIView):
@@ -580,10 +533,10 @@ class UserSignout(APIView):
 
 class CheckUsernameAvailability(APIView):
     permission_classes = [IsAuthenticated]
+    renderer_classes = [CustomJSONRenderer]
 
     def get(self, request):
         username = request.GET.get("username")
-        print("Username -> ", username)
         if not username:
             return ApiResponse.response_failed(
                 message="Please provide the username", status=404
@@ -595,18 +548,56 @@ class CheckUsernameAvailability(APIView):
             )
 
         try:
-            is_unique = not User.objects.filter(username=username.lower()).exists()
-            if not is_unique:
-                return ApiResponse.response_failed(
-                    message="Username is already taken", status=404
+            result = is_username_available(username=username)
+            if result:
+                return ApiResponse.response_succeed(
+                    message="Username is available", status=200
                 )
 
-            return ApiResponse.response_succeed(
-                message="Username is available", status=200
-            )
+            else:
+                return ApiResponse.response_failed(
+                    message="Username is already taken.", status=404
+                )
+        except ValidationError as error:
+            return ApiResponse.response_failed(message=str(error), status=400)
         except Exception as error:
-            print("Error occurred while validating the username -> ", error)
             return ApiResponse.response_failed(
-                message="Error occurred on server while validating the username. Please try again in some time or contact at support@portify.com",
+                message="Error occurred while checking username availability",
                 status=500,
             )
+
+
+class GoogleOAuthView(APIView):
+    authentication_classes = []
+
+    def post(self, request):
+        code = request.data.get("code")
+        redirect_uri = request.data.get("redirect_uri")
+
+        if not code or not redirect_uri:
+            return ApiResponse.response_failed(
+                message="Code and redirect_uri are required.", status=400, success=False
+            )
+
+        # Exchange authorization code for access_token
+        google_auth = GoogleOAuthProvider()
+        access_token = google_auth.exchange_auth_code(
+            code=code, redirect_uri=redirect_uri
+        )
+
+        # Get user info
+        user_info = google_auth.get_user_info(access_token=access_token)
+        user_email = user_info.get("email")
+        profile_pic = user_info.get("picture")
+        username = user_email.split("@")[0]
+
+        # Saving or getting user from DB
+        user = google_auth.create_or_get_user(
+            user_email=user_email, username=username, profile_pic=profile_pic
+        )
+
+        # Generate JWT tokens
+        tokens = GenerateAndSetJWT(user=user)
+        tokens.generate_refresh_token()
+        response = tokens.set_jwt_cookie()
+        return response

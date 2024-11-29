@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "authentication",
     "portfolio",
     "rest_framework",
+    "social_django",
     "corsheaders",
     "storages",
 ]
@@ -65,10 +66,19 @@ TEMPLATES = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "authentication.custom_authentication.CookieJWTAuthentication",
     ),
     "EXCEPTION_HANDLER": "server.utils.exception_handler.custom_exception_handler",
+    "DEFAULT_RENDERER_CLASSES": [
+        "server.renderers.CustomJSONRenderer",  # Your custom renderer if any
+    ],
 }
+
+AUTHENTICATION_BACKENDS = (
+    "social_core.backends.google.GoogleOAuth2",  # For Google OAuth
+    "django.contrib.auth.backends.ModelBackend",  # For Default Django Authentication
+)
+
 
 WSGI_APPLICATION = "server.wsgi.application"
 
@@ -106,11 +116,7 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-STATIC_URL = "static/"
-
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
-MEDIA_URL = "/media/"
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
@@ -146,21 +152,45 @@ SIMPLE_JWT = {
     "SLIDING_TOKEN_REFRESH_SERIALIZER": "rest_framework_simplejwt.serializers.TokenRefreshSlidingSerializer",
 }
 
-cloudinary.config(
-    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.environ.get("CLOUDINARY_API_KEY"),
-    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+
+STATIC_URL = (
+    f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/static/"
 )
+MEDIA_URL = (
+    f"https://{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net/media/"
+)
+
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "bucket_name": os.environ.get("S3_PROJECT_BUCKET_NAME"),
+            "default_acl": "private",
+            "location": "media",
+            "custom_domain": f"{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net",
+        },
+    },
+    "staticfiles": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "bucket_name": os.environ.get("S3_PROJECT_BUCKET_NAME"),
+            "location": "static",
+            "custom_domain": f"{os.environ.get('PROJECT_CLOUDFRONT_DOMAIN')}.cloudfront.net",
+        },
+    },
+}
 
 
 AWS_ACCESS_KEY_ID = os.environ.get("S3_SECRET_ACCESS_KEY")
 AWS_SECRET_ACCESS_KEY = os.environ.get("S3_KEY_ID")
+AWS_S3_REGION_NAME = os.environ.get("S3_REGION_NAME")
+
+
+# Additional buckets for templates and portfolio sites
 AWS_STORAGE_TEMPLATE_BUCKET_NAME = os.environ.get("S3_TEMPLATE_BUCKET_NAME")
 AWS_DEPLOYED_PORTFOLIO_BUCKET_NAME = os.environ.get("S3_DEPLOYED_BUCKET_NAME")
-AWS_S3_REGION_NAME = os.environ.get("S3_REGION_NAME")
-DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
 
-
+# Prebuilt tempalte local path
 TEMPLATES_BASE_DIR = "D:\Learnings\Web Development Projects\Templates"
 
 
@@ -172,6 +202,11 @@ EMAIL_HOST = "sandbox.smtp.mailtrap.io"
 EMAIL_HOST_USER = os.environ.get("HOST_USER")
 EMAIL_HOST_PASSWORD = os.environ.get("HOST_PASSWORD")
 EMAIL_PORT = os.environ.get("EMAIL_PORT")
+
+
+# OAuth Config
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_OAUTH2_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH2_SECRET")
 
 
 # FOR PRODUCTION ->
