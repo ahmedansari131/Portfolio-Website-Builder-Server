@@ -1,21 +1,15 @@
-from rest_framework import renderers
 import json
+from rest_framework import renderers
 
 
 class CustomJSONRenderer(renderers.JSONRenderer):
     charset = "UTF-8"
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
-        # Check if data is None, which can happen on some responses
-        if data is None:
-            return json.dumps({"message": "No data available"}).encode(self.charset)
-
-        # Check if there's an error in the data
-        message = data.get("message")
-        if isinstance(message, dict) and "detail" in message:
-            data["message"] = message["detail"]
-
-        response = data
-
-        # Serialize the response to JSON and encode it with UTF-8
-        return json.dumps(response).encode(self.charset)
+        if "ErrorDetail" in str(data):
+            data["message"] = str(data.get("message").get("detail"))
+            response = data
+            return json.dumps(response)
+        else:
+            response = data
+        return json.dumps(response)
