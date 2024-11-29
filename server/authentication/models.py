@@ -9,7 +9,7 @@ import os
 
 def user_profile_picture_upload_to(instance, filename):
     # Using the user ID or username for the folder
-    return os.path.join("profile_pictures", str(instance.id), filename)
+    return os.path.join(f"user-{str(instance.id)}", "profile-pictures", filename)
 
 
 class Provider(models.TextChoices):
@@ -65,6 +65,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_terms_agree = models.BooleanField(default=False, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    provider = models.CharField(
+        max_length=50, choices=Provider.choices, default=Provider.EMAIL
+    )
 
     objects = UserManager()
 
