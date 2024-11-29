@@ -40,7 +40,6 @@ from portfolio.constants import (
     EMAIL_JS_FILE,
     S3_JS_FOLDER_NAME,
     S3_CSS_FOLDER_NAME,
-    S3_ASSETS_FOLDER_NAME,
     ROOT_STYLE_FILE,
 )
 
